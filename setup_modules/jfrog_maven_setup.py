@@ -139,12 +139,22 @@ Have you downloaded settings.xml to {self.m2_dir}? (y/n): """, end='')
             tree = ET.parse(settings_path)
             root = tree.getroot()
             
+            # Handle XML namespaces
+            # Extract namespace from root tag if present
+            namespace = ''
+            if '}' in root.tag:
+                namespace = root.tag.split('}')[0] + '}'
+            
             # Check for required elements (mirrors is optional)
             required_elements = ['servers', 'profiles']
             missing_elements = []
             
             for element in required_elements:
-                if root.find(f".//{element}") is None:
+                # Try with namespace first, then without
+                elem_with_ns = root.find(f".//{namespace}{element}")
+                elem_without_ns = root.find(f".//{element}")
+                
+                if elem_with_ns is None and elem_without_ns is None:
                     missing_elements.append(element)
             
             if missing_elements:
@@ -155,21 +165,23 @@ Have you downloaded settings.xml to {self.m2_dir}? (y/n): """, end='')
             # Look for legion.jfrog.io URLs or typical JFrog server IDs
             jfrog_found = False
             
-            # Check in servers section
-            for server in root.findall('.//server'):
-                server_id = server.find('id')
-                if server_id is not None:
+            # Check in servers section (with namespace handling)
+            servers = root.findall(f".//{namespace}server") if namespace else root.findall('.//server')
+            for server in servers:
+                server_id = server.find(f"{namespace}id") if namespace else server.find('id')
+                if server_id is not None and server_id.text:
                     id_text = server_id.text.lower()
                     # Check for common JFrog server IDs
                     if any(x in id_text for x in ['central', 'snapshots', 'artifactory', 'libs-']):
                         jfrog_found = True
                         break
             
-            # Also check in repository URLs
+            # Also check in repository URLs (with namespace handling)
             if not jfrog_found:
-                for repo in root.findall('.//repository'):
-                    url_elem = repo.find('url')
-                    if url_elem is not None and 'jfrog.io' in url_elem.text:
+                repos = root.findall(f".//{namespace}repository") if namespace else root.findall('.//repository')
+                for repo in repos:
+                    url_elem = repo.find(f"{namespace}url") if namespace else repo.find('url')
+                    if url_elem is not None and url_elem.text and 'jfrog.io' in url_elem.text:
                         jfrog_found = True
                         break
             
@@ -550,20 +562,27 @@ Have you downloaded settings.xml to {self.m2_dir}? (y/n): """, end='')
             root = tree.getroot()
             has_jfrog_config = False
             
-            # Check servers
-            for server in root.findall('.//server'):
-                server_id = server.find('id')
-                if server_id is not None:
+            # Handle XML namespaces
+            namespace = ''
+            if '}' in root.tag:
+                namespace = root.tag.split('}')[0] + '}'
+            
+            # Check servers (with namespace handling)
+            servers = root.findall(f".//{namespace}server") if namespace else root.findall('.//server')
+            for server in servers:
+                server_id = server.find(f"{namespace}id") if namespace else server.find('id')
+                if server_id is not None and server_id.text:
                     id_text = server_id.text.lower()
                     if any(x in id_text for x in ['central', 'snapshots', 'artifactory', 'libs-']):
                         has_jfrog_config = True
                         break
             
-            # Also check repository URLs
+            # Also check repository URLs (with namespace handling)
             if not has_jfrog_config:
-                for repo in root.findall('.//repository'):
-                    url_elem = repo.find('url')
-                    if url_elem is not None and 'jfrog.io' in url_elem.text:
+                repos = root.findall(f".//{namespace}repository") if namespace else root.findall('.//repository')
+                for repo in repos:
+                    url_elem = repo.find(f"{namespace}url") if namespace else repo.find('url')
+                    if url_elem is not None and url_elem.text and 'jfrog.io' in url_elem.text:
                         has_jfrog_config = True
                         break
             
@@ -639,11 +658,17 @@ Have you downloaded settings.xml to {self.m2_dir}? (y/n): """, end='')
             tree = ET.parse(settings_path)
             root = tree.getroot()
             
+            # Handle XML namespaces
+            namespace = ''
+            if '}' in root.tag:
+                namespace = root.tag.split('}')[0] + '}'
+            
             # Look for JFrog-related configuration
             jfrog_servers = []
-            for server in root.findall('.//server'):
-                server_id = server.find('id')
-                if server_id is not None:
+            servers = root.findall(f".//{namespace}server") if namespace else root.findall('.//server')
+            for server in servers:
+                server_id = server.find(f"{namespace}id") if namespace else server.find('id')
+                if server_id is not None and server_id.text:
                     id_text = server_id.text.lower()
                     # Check for common JFrog server IDs
                     if any(x in id_text for x in ['central', 'snapshots', 'artifactory', 'libs-']):
