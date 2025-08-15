@@ -272,14 +272,19 @@ Have you added AND authorized the SSH key for legionco? (y/n): """, end='')
             return False, f"SSH verification error: {str(e)}"
 
     def clone_repositories(self) -> Tuple[bool, str]:
-        """Clone both enterprise and console-ui repositories."""
-        self.logger.info("Cloning Legion repositories...")
+        """Clone or update both enterprise and console-ui repositories."""
+        self.logger.info("Setting up Legion repositories...")
+        
+        # Check if we should force fresh clones
+        force_fresh = self.config.get('git', {}).get('force_fresh_clone', False)
+        if force_fresh:
+            self.logger.info("Force fresh clone enabled - will remove existing repositories")
         
         results = []
         overall_success = True
         
         for repo_name, repo_config in self.repositories.items():
-            self.logger.info(f"Cloning {repo_name} repository...")
+            self.logger.info(f"Processing {repo_name} repository...")
             
             try:
                 success, message = self._clone_single_repository(repo_name, repo_config)
@@ -297,10 +302,11 @@ Have you added AND authorized the SSH key for legionco? (y/n): """, end='')
         return overall_success, result_message
 
     def _clone_single_repository(self, repo_name: str, repo_config: Dict) -> Tuple[bool, str]:
-        """Clone a single repository with proper setup."""
+        """Clone or update a single repository with proper setup."""
         repo_url = repo_config['url']
         repo_path = repo_config['path']
         has_submodules = repo_config.get('has_submodules', False)
+        force_fresh = self.config.get('git', {}).get('force_fresh_clone', False)
         
         try:
             # Create parent directory
@@ -308,11 +314,93 @@ Have you added AND authorized the SSH key for legionco? (y/n): """, end='')
             
             # Check if repository already exists
             if repo_path.exists() and (repo_path / '.git').exists():
-                self.logger.info(f"Repository {repo_name} already exists, removing for fresh clone...")
-                # Remove existing repository for a fresh clone
-                import shutil
-                shutil.rmtree(repo_path)
-                self.logger.info(f"Removed existing {repo_name} repository")
+                if force_fresh:
+                    self.logger.info(f"Force fresh clone enabled - removing existing {repo_name} repository...")
+                    import shutil
+                    shutil.rmtree(repo_path)
+                    self.logger.info(f"Removed existing {repo_name} repository")
+                    # Will fall through to cloning below
+                else:
+                    self.logger.info(f"Repository {repo_name} already exists at {repo_path}")
+                    
+                    # Verify it's the correct repository
+                    original_cwd = os.getcwd()
+                    os.chdir(repo_path)
+                    
+                    try:
+                        # Check remote URL
+                        result = subprocess.run(['git', 'remote', 'get-url', 'origin'],
+                                              capture_output=True, text=True)
+                        current_remote = result.stdout.strip() if result.returncode == 0 else ""
+                        
+                        # Check if remote matches (either SSH or HTTPS version for enterprise)
+                        expected_remotes = [repo_url]
+                        if repo_name == 'enterprise':
+                            expected_remotes.append('https://github.com/legionco/enterprise.git')
+                        
+                        remote_matches = any(remote in current_remote for remote in expected_remotes)
+                        
+                        if remote_matches:
+                            self.logger.info(f"✅ Repository {repo_name} is valid, updating instead of re-cloning...")
+                            
+                            # Make sure we're using SSH for origin
+                            if repo_url not in current_remote:
+                                subprocess.run(['git', 'remote', 'set-url', 'origin', repo_url],
+                                             capture_output=True, text=True)
+                                self.logger.info(f"Updated origin to use SSH: {repo_url}")
+                            
+                            # Fetch latest changes
+                            self.logger.info(f"Fetching latest changes for {repo_name}...")
+                            fetch_result = subprocess.run(['git', 'fetch', '--all', '--prune'],
+                                                        capture_output=True, text=True)
+                            
+                            if fetch_result.returncode != 0:
+                                self.logger.warning(f"Fetch warning: {fetch_result.stderr}")
+                            
+                            # Get current branch
+                            branch_result = subprocess.run(['git', 'branch', '--show-current'],
+                                                          capture_output=True, text=True)
+                            current_branch = branch_result.stdout.strip()
+                            
+                            # If we're on a main branch, pull latest
+                            if current_branch in ['main', 'master', 'develop']:
+                                self.logger.info(f"Pulling latest changes on {current_branch}...")
+                                pull_result = subprocess.run(['git', 'pull', '--ff-only'],
+                                                            capture_output=True, text=True)
+                                
+                                if pull_result.returncode != 0:
+                                    if 'diverged' in pull_result.stderr or 'fast-forward' in pull_result.stderr:
+                                        self.logger.warning(f"Branch has local changes, skipping pull: {pull_result.stderr}")
+                                    else:
+                                        self.logger.warning(f"Pull warning: {pull_result.stderr}")
+                            else:
+                                self.logger.info(f"On branch {current_branch}, skipping pull")
+                            
+                            # Update submodules if needed
+                            if has_submodules:
+                                self.logger.info("Updating submodules...")
+                                submodule_result = subprocess.run(['git', 'submodule', 'update', '--init', '--recursive'],
+                                                                 capture_output=True, text=True, timeout=600)
+                                if submodule_result.returncode != 0:
+                                    self.logger.warning(f"Some submodules may not be accessible: {submodule_result.stderr}")
+                            
+                            os.chdir(original_cwd)
+                            
+                            # Run post-clone setup
+                            self._post_clone_setup(repo_name, repo_path, has_submodules)
+                            
+                            return True, f"{repo_name} repository updated successfully"
+                        else:
+                            self.logger.warning(f"Repository exists but remote URL doesn't match. Expected: {repo_url}, Got: {current_remote}")
+                            self.logger.info(f"Removing and re-cloning {repo_name}...")
+                            os.chdir(original_cwd)
+                            import shutil
+                            shutil.rmtree(repo_path)
+                    
+                    finally:
+                        os.chdir(original_cwd)
+            
+            # If we get here, we need to clone (either doesn't exist or was removed)
             
             # Clone the repository (without recursive submodules initially)
             # Use HTTPS for enterprise repo to avoid auth issues with submodules

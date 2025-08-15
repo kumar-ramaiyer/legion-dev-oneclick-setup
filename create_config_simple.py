@@ -143,7 +143,8 @@ def create_simple_config():
             'setup_github_cli': True,
             'ssh_key_type': 'ed25519',
             'ssh_passphrase': ssh_passphrase,
-            'git_editor': 'nano'
+            'git_editor': 'nano',
+            'force_fresh_clone': False  # Set to True to always re-clone repositories
         },
         'repositories': {
             'enterprise': {
