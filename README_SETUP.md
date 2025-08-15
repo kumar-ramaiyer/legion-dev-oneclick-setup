@@ -7,7 +7,7 @@ This automated setup system configures a complete Legion development environment
 ## 📁 Project Structure
 
 ```
-legion-dev-setup/
+legion-dev-oneclick-setup/
 ├── setup.sh                    # Main entry point (shell script)
 ├── legion_dev_setup.py         # Core Python setup orchestrator
 ├── setup_config.yaml           # User configuration file
@@ -313,7 +313,7 @@ The setup can be packaged for easy distribution:
 
 ```bash
 # Create distribution package
-tar -czf legion-dev-setup-v1.0.0.tar.gz legion-dev-setup/
+tar -czf legion-dev-oneclick-setup-v1.0.0.tar.gz legion-dev-oneclick-setup/
 
 # Or create installer
 python3 create_installer.py --output legion-installer.run
@@ -344,7 +344,7 @@ For containerized testing:
 
 ```dockerfile
 FROM ubuntu:20.04
-COPY legion-dev-setup/ /setup/
+COPY legion-dev-oneclick-setup/ /setup/
 RUN /setup/setup.sh --auto-confirm
 EXPOSE 8080 3306 9200 6379
 ```

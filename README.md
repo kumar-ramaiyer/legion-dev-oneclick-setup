@@ -8,7 +8,7 @@ Enterprise-grade setup automation designed for 100+ developers across macOS and 
 
 ```bash
 # 1. Clone or download this setup package
-cd legion-dev-setup
+cd legion-dev-oneclick-setup
 
 # 2. Run the setup (interactive)
 ./setup.sh
@@ -82,7 +82,7 @@ setup_options:
 ## Project Structure
 
 ```
-legion-dev-setup/
+legion-dev-oneclick-setup/
 ├── setup.sh                    # Main entry point
 ├── legion_dev_setup.py         # Core setup orchestrator
 ├── setup_config.yaml           # User configuration
