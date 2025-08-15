@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Configuration
+setup_config.yaml
+setup_config.yaml.backup
+*.log
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+.legion_setup/
+
+# SSH keys (never commit)
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+ssh_public_key.txt
+
+# Database dumps
+*.sql
+*.sql.gz
+*.sql.zip
+Legion_DB_Snapshots/
+
+# Maven
+target/
+.m2/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Docker
+docker-compose.override.yml
+
+# Test files
+*.test
+*.spec

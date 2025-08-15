@@ -1,0 +1,127 @@
+# Legion Enterprise Development Environment Configuration
+# This file allows users to personalize their setup process
+
+# User Information
+user:
+  name: ""  # Your full name
+  email: ""  # Your email address
+  github_username: ""  # GitHub username for repository access
+
+# Base Paths Configuration
+base_paths:
+  workspace_root: "~/Development/legion"  # Root directory for all Legion development
+  code_directory: "code"                  # Subdirectory for source code repositories
+
+# Installation Paths (leave blank for defaults)
+paths:
+  maven_install_path: ""  # Default: /usr/local/maven
+  jdk_install_path: ""   # Default: system default
+  enterprise_repo_path: "${base_paths.workspace_root}/${base_paths.code_directory}/enterprise"
+  console_ui_repo_path: "${base_paths.workspace_root}/${base_paths.code_directory}/console-ui"
+  mysql_data_path: ""    # Default: system default
+
+# Version Preferences
+versions:
+  node: "latest"      # Using latest for console-ui frontend
+  yarn: "latest"      # Frontend uses Yarn, not npm
+  lerna: "6"          # Lerna v6 for frontend monorepo (v7 won't work)
+  maven: "3.9.9"
+  jdk: "17"
+  mysql: "8.0"
+  elasticsearch: "8.0.0"
+
+# Database Configuration
+database:
+  mysql_root_password: "mysql123"  # Default MySQL root password
+  legion_db_password: "legionwork"  # Default legion user password
+  elasticsearch_index_modifier: ""  # Auto-generated from your name
+
+# Setup Options
+setup_options:
+  skip_intellij_setup: false  # Set to true to skip IntelliJ configuration
+  skip_database_import: false  # Set to true to skip database import (manual setup)
+  use_snapshot_import: true   # true for Option 1 (faster), false for Option 2 (full dump)
+  skip_docker_setup: false   # Set to true if Docker is already configured
+  install_homebrew: true     # Set to false if Homebrew is already installed
+  setup_vpn_check: false     # Set to true to check VPN connectivity (requires manual setup)
+  setup_ssh_keys: true       # Set to true to generate SSH keys for GitHub
+  clone_repositories: true   # Set to true to clone enterprise and console-ui repos
+
+# AWS/Cloud Configuration
+aws:
+  setup_localstack: true    # Setup LocalStack for local AWS simulation
+  setup_aws_cli: false     # Set to true to setup AWS CLI (requires Okta)
+
+# Docker Configuration
+docker:
+  memory_gb: 4.0
+  cpus: 4
+  swap_gb: 1.0
+
+# Development Environment
+dev_environment:
+  setup_redis: true        # Setup Redis for locking (required since Dec 2024)
+  setup_elasticsearch: true
+  setup_frontend: true     # Setup console-ui frontend
+  create_intellij_config: true
+
+# Network/Connectivity
+network:
+  proxy_host: ""          # Corporate proxy host (if needed)
+  proxy_port: ""          # Corporate proxy port (if needed)
+  no_proxy: "localhost,127.0.0.1"
+
+# Advanced Options
+advanced:
+  parallel_downloads: true    # Enable parallel downloads where possible
+  verbose_logging: true      # Enable verbose logging (default: true)
+  dry_run: false            # Show what would be done without executing
+  auto_confirm: true        # Skip confirmation prompts (default: true)
+  backup_existing_config: true  # Backup existing configurations before modifying
+
+# Custom Commands (for enterprise-specific needs)
+custom_commands:
+  pre_setup: []   # Commands to run before setup begins
+  post_setup: []  # Commands to run after setup completes
+  pre_build: []   # Commands to run before Maven build
+  post_build: []  # Commands to run after successful build
+
+# Git and GitHub Configuration
+git:
+  generate_ssh_key: true         # Generate SSH key for GitHub authentication
+  setup_github_cli: true         # Install and configure GitHub CLI
+  ssh_key_type: "ed25519"        # SSH key type (ed25519 recommended)
+  git_editor: "nano"             # Default git editor
+  
+# Repository Configuration
+repositories:
+  enterprise:
+    url: "git@github.com:legionco/enterprise.git"
+    path: "${base_paths.workspace_root}/${base_paths.code_directory}/enterprise"
+    clone_submodules: true       # Clone with --recurse-submodules
+    
+  console_ui:
+    url: "git@github.com:legionco/console-ui.git"
+    path: "${base_paths.workspace_root}/${base_paths.code_directory}/console-ui"
+    clone_submodules: false
+
+# JFrog Artifactory Configuration
+jfrog:
+  download_settings_xml: true    # Download settings.xml via Okta
+  artifactory_url: ""           # Leave blank for default Legion JFrog instance
+
+# Database Configuration
+database_snapshots:
+  # Google Drive folder containing database snapshots
+  gdrive_folder_url: "https://drive.google.com/drive/folders/1WhTR6fP9KkFO4m7mxLSGu-Ksf4erQ6RK"
+  # File IDs will be auto-extracted from folder, but can be overridden here if needed
+  file_ids:
+    storedprocedures: ""  # Auto-detected from folder
+    legiondb: ""          # Auto-detected from folder
+    legiondb0: ""         # Auto-detected from folder
+
+# Notification Settings
+notifications:
+  email_on_completion: false
+  slack_webhook: ""       # Optional Slack webhook for notifications
+  teams_webhook: ""       # Optional Teams webhook for notifications
