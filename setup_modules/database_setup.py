@@ -1,7 +1,25 @@
 #!/usr/bin/env python3
 """
 Legion Setup - Database Setup Module
-Handles MySQL database setup, user creation, and data import
+====================================
+
+This module handles all database-related setup tasks for Legion:
+- MySQL service configuration and startup
+- Database and user creation
+- Data import from snapshots or dumps
+- Collation fixes and schema management
+- Google Drive automatic downloads
+
+Key Features:
+- Automatic MySQL service detection and startup
+- Smart snapshot downloading from Google Drive
+- Support for both snapshot (fast) and full dump (complete) imports
+- UTF8MB4 character set configuration
+- Stored procedure installation
+- System schema (legiondb0) creation
+
+Author: Legion DevOps Team
+Version: 1.0.0
 """
 
 import os
@@ -21,7 +39,34 @@ import zipfile
 import shutil
 
 class DatabaseSetup:
+    """
+    Manages MySQL database setup for Legion development environment.
+    
+    This class handles:
+    - MySQL service management
+    - Database creation (legiondb, legiondb0)
+    - User creation and permissions
+    - Data import from snapshots or dumps
+    - Automatic downloads from Google Drive
+    - Collation and character set configuration
+    
+    Attributes:
+        config: Configuration dictionary
+        logger: Logger instance for output
+        db_config: Database-specific configuration
+        temp_dir: Temporary directory for downloads and processing
+        root_password: MySQL root password
+        legion_password: Password for legion database user
+    """
+    
     def __init__(self, config: Dict, logger):
+        """
+        Initialize database setup handler.
+        
+        Args:
+            config: Configuration dictionary with database settings
+            logger: Logger instance for output and debugging
+        """
         self.config = config
         self.logger = logger
         self.db_config = config.get('database', {})
@@ -38,7 +83,20 @@ class DatabaseSetup:
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def setup_mysql_service(self) -> Tuple[bool, str]:
-        """Start and configure MySQL service."""
+        """
+        Start and configure MySQL service.
+        
+        Attempts multiple methods to start MySQL:
+        - Homebrew services (macOS)
+        - systemctl (Linux)
+        - mysql.server script
+        - Direct MySQL support files
+        
+        Also performs basic security setup.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Setting up MySQL service...")
         
         try:
@@ -167,7 +225,20 @@ class DatabaseSetup:
             return False, f"MySQL security setup error: {str(e)}"
 
     def create_databases_and_users(self) -> Tuple[bool, str]:
-        """Create Legion databases and users."""
+        """
+        Create Legion databases and users.
+        
+        Creates:
+        - legiondb database (main application database)
+        - legiondb0 database (system schema)
+        - legion user with full privileges
+        - legionro user (read-only, for reporting)
+        
+        Sets UTF8MB4 character set and collation for proper Unicode support.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Creating Legion databases and users...")
         
         try:
@@ -227,7 +298,18 @@ class DatabaseSetup:
             return False, f"Database creation error: {str(e)}"
 
     def import_data(self) -> Tuple[bool, str]:
-        """Import data into Legion databases."""
+        """
+        Import data into Legion databases.
+        
+        Supports two import methods:
+        1. Snapshot import (fast, ~25 minutes)
+        2. Full dump import (complete, ~1 day)
+        
+        Method is determined by configuration setting 'use_snapshot_import'.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         use_snapshot = self.config.get('setup_options', {}).get('use_snapshot_import', True)
         
         if use_snapshot:
@@ -320,7 +402,27 @@ Press Enter when files are ready...
             return False, f"Snapshot import error: {str(e)}"
     
     def _download_snapshot_files(self, snapshot_dir: Path) -> bool:
-        """Download snapshot files from Google Drive automatically."""
+        """
+        Download snapshot files from Google Drive automatically.
+        
+        Downloads:
+        - storedprocedures.sql (stored procedures for both databases)
+        - legiondb.sql.zip (main database snapshot)
+        - legiondb0.sql.zip (system schema snapshot)
+        
+        Features:
+        - Automatic gdown installation if needed
+        - Folder-based download support
+        - Fallback to individual file downloads
+        - Automatic zip extraction
+        - Skip download if files already exist
+        
+        Args:
+            snapshot_dir: Directory to save downloaded files
+            
+        Returns:
+            bool: True if all files downloaded successfully
+        """
         try:
             # Try to import gdown
             try:
@@ -580,7 +682,19 @@ Continuing with empty system schema creation...
             return False, f"Full dump import error: {str(e)}"
 
     def _import_sql_file(self, sql_file: Path, database: str) -> Tuple[bool, str]:
-        """Import a SQL file into specified database."""
+        """
+        Import a SQL file into specified database.
+        
+        Uses MySQL command line client for reliable import.
+        Handles large files with 30-minute timeout.
+        
+        Args:
+            sql_file: Path to SQL file to import
+            database: Target database name
+            
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info(f"Importing {sql_file.name} into {database}...")
         
         try:
@@ -728,7 +842,17 @@ Continuing with empty system schema creation...
             return True, "Enterprise schema insert completed (source may be empty)"
 
     def _fix_collation_mismatches(self) -> Tuple[bool, str]:
-        """Fix collation mismatches in the databases."""
+        """
+        Fix collation mismatches in the databases.
+        
+        Converts all tables to UTF8MB4 with utf8mb4_general_ci collation.
+        This prevents "Illegal mix of collations" errors.
+        
+        Processes both legiondb and legiondb0 databases.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Fixing collation mismatches...")
         
         try:
@@ -780,7 +904,19 @@ fix_collation('legiondb0')
             return False, f"Collation fix error: {str(e)}"
 
     def _get_mysql_connection(self, user: str, password: str, database: str = None):
-        """Get MySQL connection."""
+        """
+        Get MySQL connection.
+        
+        Creates a mysql-connector-python connection with specified credentials.
+        
+        Args:
+            user: MySQL username
+            password: MySQL password
+            database: Optional database name to connect to
+            
+        Returns:
+            mysql.connector.connection: MySQL connection object, or None if failed
+        """
         try:
             connection_params = {
                 'host': 'localhost',
@@ -798,7 +934,17 @@ fix_collation('legiondb0')
             return None
 
     def verify_database_setup(self) -> Tuple[bool, str]:
-        """Verify that database setup is working correctly."""
+        """
+        Verify that database setup is working correctly.
+        
+        Checks:
+        - Connection as legion user
+        - Both databases exist (legiondb, legiondb0)
+        - Tables are present in both databases
+        
+        Returns:
+            Tuple[bool, str]: (Success status, summary with table counts)
+        """
         self.logger.info("Verifying database setup...")
         
         try:
