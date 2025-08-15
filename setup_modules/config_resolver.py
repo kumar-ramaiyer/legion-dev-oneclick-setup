@@ -1,7 +1,30 @@
 #!/usr/bin/env python3
 """
-Legion Setup - Configuration Variable Resolution
-Resolves variables and paths in configuration files
+Legion Setup - Configuration Variable Resolution Module
+=======================================================
+
+This module handles the resolution of variables and paths in configuration files.
+It supports:
+- Variable substitution using ${variable.path} syntax
+- Tilde (~) expansion for home directories
+- Nested variable resolution
+- Path validation and creation
+- Circular reference detection
+
+The resolver enables configuration files to use variables and relative paths,
+making configurations portable across different environments and users.
+
+Example:
+    config = {
+        'base_paths': {'workspace_root': '~/Development'},
+        'paths': {'repo': '${base_paths.workspace_root}/repo'}
+    }
+    resolver = ConfigResolver(config)
+    resolved = resolver.resolve_variables()
+    # Result: {'paths': {'repo': '/Users/username/Development/repo'}}
+
+Author: Legion DevOps Team
+Version: 1.0.0
 """
 
 import os
@@ -10,12 +33,43 @@ from pathlib import Path
 from typing import Dict, Any, Union
 
 class ConfigResolver:
+    """
+    Configuration resolver for variable substitution and path expansion.
+    
+    This class processes configuration dictionaries to resolve:
+    - Variable references (${var.path})
+    - Home directory tildes (~)
+    - Nested variable dependencies
+    
+    Attributes:
+        config: The original configuration dictionary
+        resolved_cache: Cache of resolved values to avoid recomputation
+    """
+    
     def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize the configuration resolver.
+        
+        Args:
+            config: Configuration dictionary potentially containing variables
+        """
         self.config = config
         self.resolved_cache = {}
     
     def resolve_variables(self, config: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Recursively resolve all variables in the configuration."""
+        """
+        Recursively resolve all variables in the configuration.
+        
+        Performs a two-pass resolution:
+        1. Expands tilde paths (~) to absolute paths
+        2. Resolves variable references (${var})
+        
+        Args:
+            config: Configuration to resolve (uses self.config if None)
+            
+        Returns:
+            Dict[str, Any]: Configuration with all variables resolved
+        """
         if config is None:
             config = self.config.copy()
         
@@ -28,7 +82,15 @@ class ConfigResolver:
         return config
     
     def _expand_tilde_paths(self, obj: Any) -> Any:
-        """Expand ~ to home directory in all string values."""
+        """
+        Recursively expand tilde (~) to home directory in string values.
+        
+        Args:
+            obj: Any configuration value (dict, list, string, etc.)
+            
+        Returns:
+            Any: Object with tilde paths expanded to absolute paths
+        """
         if isinstance(obj, dict):
             return {key: self._expand_tilde_paths(value) for key, value in obj.items()}
         elif isinstance(obj, list):
@@ -41,7 +103,22 @@ class ConfigResolver:
             return obj
     
     def _resolve_variable_references(self, obj: Any, max_iterations: int = 10) -> Any:
-        """Resolve ${variable} references in configuration."""
+        """
+        Resolve ${variable} references in configuration.
+        
+        Iteratively resolves variables until no more references remain.
+        Detects circular references by limiting iterations.
+        
+        Args:
+            obj: Configuration object containing variable references
+            max_iterations: Maximum resolution passes to prevent infinite loops
+            
+        Returns:
+            Any: Object with all variable references resolved
+            
+        Warns:
+            If circular references are detected (max iterations reached)
+        """
         # Keep resolving until no more variables found or max iterations reached
         for iteration in range(max_iterations):
             resolved_obj = self._resolve_variables_single_pass(obj)
@@ -56,7 +133,18 @@ class ConfigResolver:
         return resolved_obj
     
     def _resolve_variables_single_pass(self, obj: Any) -> Any:
-        """Single pass of variable resolution."""
+        """
+        Perform a single pass of variable resolution.
+        
+        Recursively traverses the configuration structure and resolves
+        variables at each level.
+        
+        Args:
+            obj: Configuration object to process
+            
+        Returns:
+            Any: Object after one pass of variable resolution
+        """
         if isinstance(obj, dict):
             return {key: self._resolve_variables_single_pass(value) for key, value in obj.items()}
         elif isinstance(obj, list):
@@ -67,7 +155,18 @@ class ConfigResolver:
             return obj
     
     def _resolve_string_variables(self, text: str) -> str:
-        """Resolve ${variable.path} references in a string."""
+        """
+        Resolve ${variable.path} references in a string.
+        
+        Finds all variable references in the format ${var.path} and
+        replaces them with their values from the configuration.
+        
+        Args:
+            text: String potentially containing variable references
+            
+        Returns:
+            str: String with all variables replaced with their values
+        """
         # Pattern to match ${variable.path} or ${variable}
         pattern = r'\$\{([^}]+)\}'
         
@@ -83,7 +182,22 @@ class ConfigResolver:
         return re.sub(pattern, replace_var, text)
     
     def _get_nested_value(self, config: Dict[str, Any], path: str) -> Any:
-        """Get a nested value from config using dot notation (e.g., 'base_paths.workspace_root')."""
+        """
+        Get a nested value from config using dot notation.
+        
+        Navigates through nested dictionaries using dot-separated paths.
+        Example: 'base_paths.workspace_root' retrieves config['base_paths']['workspace_root']
+        
+        Args:
+            config: Configuration dictionary to search
+            path: Dot-separated path to the desired value
+            
+        Returns:
+            Any: Value at the specified path
+            
+        Raises:
+            KeyError: If the path doesn't exist in the configuration
+        """
         keys = path.split('.')
         current = config
         
@@ -96,7 +210,18 @@ class ConfigResolver:
         return current
     
     def _has_unresolved_variables(self, obj: Any) -> bool:
-        """Check if there are still unresolved ${} variables."""
+        """
+        Check if there are still unresolved ${} variables.
+        
+        Recursively checks all strings in the configuration structure
+        for remaining variable references.
+        
+        Args:
+            obj: Configuration object to check
+            
+        Returns:
+            bool: True if unresolved variables remain, False otherwise
+        """
         if isinstance(obj, dict):
             return any(self._has_unresolved_variables(value) for value in obj.values())
         elif isinstance(obj, list):
@@ -107,7 +232,21 @@ class ConfigResolver:
             return False
     
     def get_resolved_path(self, path_key: str) -> Path:
-        """Get a resolved path as a Path object."""
+        """
+        Get a resolved path as a Path object.
+        
+        Resolves all variables in the configuration, then retrieves
+        the specified path and converts it to a Path object.
+        
+        Args:
+            path_key: Dot-notation key to the path in config (e.g., 'paths.repo')
+            
+        Returns:
+            Path: Resolved absolute path
+            
+        Raises:
+            ValueError: If the path key doesn't exist in configuration
+        """
         resolved_config = self.resolve_variables()
         
         # Handle nested path keys like 'paths.enterprise_repo_path'
@@ -118,13 +257,38 @@ class ConfigResolver:
             raise ValueError(f"Path key '{path_key}' not found in configuration")
     
     def ensure_directory_exists(self, path_key: str) -> Path:
-        """Ensure a directory exists and return the Path object."""
+        """
+        Ensure a directory exists and return the Path object.
+        
+        Gets the resolved path and creates the directory if it doesn't exist.
+        Creates parent directories as needed.
+        
+        Args:
+            path_key: Dot-notation key to the path in config
+            
+        Returns:
+            Path: Path object for the created/existing directory
+            
+        Raises:
+            ValueError: If the path key doesn't exist
+            PermissionError: If directory creation fails due to permissions
+        """
         path = self.get_resolved_path(path_key)
         path.mkdir(parents=True, exist_ok=True)
         return path
     
     def get_workspace_structure(self) -> Dict[str, Path]:
-        """Get all workspace paths as resolved Path objects."""
+        """
+        Get all workspace paths as resolved Path objects.
+        
+        Extracts and resolves all path-related configuration values:
+        - Base paths (workspace_root, code_directory)
+        - Repository paths
+        - Other configured paths
+        
+        Returns:
+            Dict[str, Path]: Dictionary mapping path names to resolved Path objects
+        """
         resolved_config = self.resolve_variables()
         
         base_paths = resolved_config.get('base_paths', {})
@@ -151,7 +315,22 @@ class ConfigResolver:
         return structure
     
     def create_workspace_structure(self) -> Dict[str, Path]:
-        """Create the entire workspace directory structure."""
+        """
+        Create the entire workspace directory structure.
+        
+        Creates all necessary directories for the Legion development environment:
+        - Workspace root directory
+        - Code directory
+        - Parent directories for repositories (but not repos themselves)
+        
+        Displays progress and handles permission errors gracefully.
+        
+        Returns:
+            Dict[str, Path]: Dictionary of created directory paths
+            
+        Raises:
+            PermissionError: If unable to create directories due to permissions
+        """
         structure = self.get_workspace_structure()
         
         print("📁 Setting up workspace directories:")
@@ -199,7 +378,15 @@ class ConfigResolver:
         return structure
     
     def validate_workspace_permissions(self) -> bool:
-        """Validate that we have write permissions in the workspace."""
+        """
+        Validate write permissions in the workspace.
+        
+        Tests ability to create and delete files in the workspace root.
+        This ensures the setup process won't fail due to permission issues.
+        
+        Returns:
+            bool: True if write permissions are available, False otherwise
+        """
         structure = self.get_workspace_structure()
         
         workspace_root = structure.get('workspace_root')

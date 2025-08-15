@@ -1,10 +1,34 @@
 #!/usr/bin/env python3
 """
 Legion Enterprise Development Environment Setup Script
-Enterprise-grade setup automation for 100+ users
+======================================================
 
+This is the main orchestrator for setting up the Legion development environment.
+It automates the traditionally manual 2-3 day setup process into a 45-90 minute
+automated installation.
+
+Key Features:
+    - One-click setup with minimal user interaction
+    - Automatic prerequisite installation via Homebrew
+    - Smart repository management (updates existing repos instead of re-cloning)
+    - Database setup with automatic snapshot downloads
+    - Docker container orchestration (Elasticsearch, Redis, LocalStack)
+    - Maven/JFrog Artifactory configuration
+    - Comprehensive error handling and recovery
+    - Detailed logging for troubleshooting
+
+Architecture:
+    - Modular design with separate setup modules for each component
+    - Configuration-driven setup using YAML files
+    - Progress tracking and rollback capabilities
+    - Platform-specific handling (macOS, Linux)
+
+Usage:
+    ./setup.sh  # Runs the setup with configuration wizard
+    
 Author: Legion DevOps Team
-Version: 1.0.0
+Version: 2.0.0
+Last Updated: 2024-08-15
 """
 
 import os
@@ -48,6 +72,12 @@ REQUIRED_VERSIONS = {
 }
 
 class SetupStage(Enum):
+    """
+    Enumeration of setup stages in the installation process.
+    
+    Each stage represents a major component of the setup process.
+    Stages are executed in order, with dependencies checked between stages.
+    """
     VALIDATION = "validation"
     PREREQUISITES = "prerequisites"
     SOFTWARE_INSTALL = "software_install"
@@ -60,6 +90,11 @@ class SetupStage(Enum):
     VERIFICATION = "verification"
 
 class LogLevel(Enum):
+    """
+    Logging levels for the setup process.
+    
+    Maps to Python's standard logging levels for consistent logging behavior.
+    """
     DEBUG = logging.DEBUG
     INFO = logging.INFO
     WARNING = logging.WARNING
@@ -68,6 +103,16 @@ class LogLevel(Enum):
 
 @dataclass
 class SetupResult:
+    """
+    Result object for each setup stage.
+    
+    Attributes:
+        success: Whether the stage completed successfully
+        message: Human-readable message about the stage result
+        stage: The SetupStage that was executed
+        duration: Time taken to execute the stage in seconds
+        details: Optional dictionary with additional stage-specific details
+    """
     success: bool
     message: str
     stage: SetupStage
@@ -75,7 +120,36 @@ class SetupResult:
     details: Dict[str, Any] = None
 
 class LegionDevSetup:
+    """
+    Main orchestrator class for Legion development environment setup.
+    
+    This class coordinates all aspects of the setup process, including:
+    - Loading and validating configuration
+    - Managing setup stages and dependencies
+    - Handling errors and rollback
+    - Tracking progress and generating reports
+    
+    Attributes:
+        config_file: Path to the YAML configuration file
+        config: Loaded configuration dictionary
+        logger: Logger instance for this class
+        results: List of SetupResult objects from each stage
+        verbose: Whether to enable verbose logging
+        auto_confirm: Whether to skip user confirmations
+        dry_run: Whether to simulate without making changes
+    """
+    
     def __init__(self, config_file: str = "setup_config.yaml"):
+        """
+        Initialize the Legion setup orchestrator.
+        
+        Args:
+            config_file: Path to YAML configuration file (default: setup_config.yaml)
+        
+        Raises:
+            FileNotFoundError: If configuration file doesn't exist
+            yaml.YAMLError: If configuration file has invalid YAML
+        """
         self.config_file = config_file
         self.config = {}
         self.platform = platform.system().lower()
@@ -117,11 +191,27 @@ class LegionDevSetup:
         return False
     
     def get_resume_stage(self) -> Optional[str]:
-        """Get the stage to resume from."""
+        """
+        Get the stage to resume from after a previous failure.
+        
+        Returns:
+            Optional[str]: Name of the stage to resume from, or None if starting fresh
+        """
         return self.progress_tracker.get_resume_point()
 
     def _setup_logging(self) -> logging.Logger:
-        """Setup comprehensive logging system."""
+        """
+        Setup comprehensive logging system with file and console handlers.
+        
+        Creates a dual-logging system that:
+        - Logs everything (DEBUG level) to a timestamped file
+        - Logs INFO and above to console
+        - Includes function names and line numbers in file logs
+        - Uses simpler format for console output
+        
+        Returns:
+            logging.Logger: Configured logger instance
+        """
         logger = logging.getLogger("legion_setup")
         logger.setLevel(logging.INFO)
         
@@ -150,7 +240,19 @@ class LegionDevSetup:
         return logger
 
     def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from YAML file."""
+        """
+        Load configuration from YAML file.
+        
+        This is an internal method that performs the actual YAML loading.
+        Used by both load_config() and during initialization.
+        
+        Returns:
+            Dict[str, Any]: Parsed configuration dictionary
+            
+        Raises:
+            FileNotFoundError: If config file doesn't exist
+            yaml.YAMLError: If YAML syntax is invalid
+        """
         try:
             with open(self.config_file, 'r') as f:
                 import yaml
@@ -165,7 +267,18 @@ class LegionDevSetup:
             raise
 
     def load_config(self) -> bool:
-        """Load and validate configuration file."""
+        """
+        Load and validate configuration file.
+        
+        Performs comprehensive validation including:
+        - File existence check
+        - YAML syntax validation
+        - Required section verification
+        - Shows help message if config is missing
+        
+        Returns:
+            bool: True if config loaded and validated successfully, False otherwise
+        """
         try:
             if not os.path.exists(self.config_file):
                 self.logger.error(f"Configuration file not found: {self.config_file}")
@@ -193,7 +306,16 @@ class LegionDevSetup:
             return False
 
     def _show_config_help(self):
-        """Show help for creating configuration file."""
+        """
+        Show help message for creating configuration file.
+        
+        Displays a formatted help message with:
+        - Instructions for creating config file
+        - Minimal configuration example
+        - Link to documentation
+        
+        Called when configuration file is missing or invalid.
+        """
         print("""
 ╔══════════════════════════════════════════════════════════════╗
 ║                    CONFIGURATION REQUIRED                    ║
@@ -221,7 +343,21 @@ versions:
         """)
 
     def check_prerequisites(self) -> List[SetupResult]:
-        """Comprehensive prerequisite checks."""
+        """
+        Perform comprehensive prerequisite checks.
+        
+        Runs a series of validation checks to ensure the system is ready for setup:
+        - Operating system compatibility
+        - Internet connectivity to required services
+        - Available disk space (minimum 50GB)
+        - Required ports availability
+        - Existing software versions
+        - File system permissions
+        - Corporate proxy/firewall detection
+        
+        Returns:
+            List[SetupResult]: Results from each prerequisite check
+        """
         self.logger.info("🔍 Starting prerequisite checks...")
         results = []
         
@@ -249,7 +385,15 @@ versions:
         return results
 
     def _check_operating_system(self) -> SetupResult:
-        """Check if operating system is supported."""
+        """
+        Check if the operating system is supported.
+        
+        Validates that the current OS is either macOS (darwin) or Linux.
+        Windows is not currently supported due to path and command differences.
+        
+        Returns:
+            SetupResult: Success if OS is supported, failure otherwise
+        """
         start_time = time.time()
         
         supported_os = ['darwin', 'linux']  # macOS and Linux
@@ -272,7 +416,19 @@ versions:
         )
 
     def _check_internet_connectivity(self) -> SetupResult:
-        """Check internet connectivity and required URLs."""
+        """
+        Check internet connectivity to required services.
+        
+        Tests connectivity to essential external services:
+        - GitHub (for repository cloning)
+        - Maven Central (for dependencies)
+        - Node.js (for npm packages)
+        - Docker Hub (for container images)
+        - Oracle (for JDK downloads)
+        
+        Returns:
+            SetupResult: Success if all URLs are reachable, failure with list of unreachable URLs
+        """
         start_time = time.time()
         
         required_urls = [
@@ -1418,14 +1574,13 @@ Backups will be created in: {self.backup_dir}
         try:
             # Get resolved repository paths
             resolver = ConfigResolver(self.config)
-            enterprise_path = Path(resolver.resolve_path(
-                self.config.get('repositories', {}).get('enterprise', {}).get('path', 
-                '~/Development/legion/code/enterprise')
-            ))
-            console_ui_path = Path(resolver.resolve_path(
-                self.config.get('repositories', {}).get('console_ui', {}).get('path',
-                '~/Development/legion/code/console-ui')
-            ))
+            resolved_config = resolver.resolve_variables()
+            
+            # Get repository paths from resolved config
+            enterprise_path = Path(resolved_config.get('repositories', {}).get('enterprise', {}).get('path', 
+                '~/Development/legion/code/enterprise')).expanduser()
+            console_ui_path = Path(resolved_config.get('repositories', {}).get('console_ui', {}).get('path',
+                '~/Development/legion/code/console-ui')).expanduser()
             
             steps = []
             overall_success = True
@@ -1639,14 +1794,13 @@ Backups will be created in: {self.backup_dir}
         
         # Get configuration values
         resolver = ConfigResolver(self.config)
-        enterprise_path = Path(resolver.resolve_path(
-            self.config.get('repositories', {}).get('enterprise', {}).get('path', 
-            '~/Development/legion/code/enterprise')
-        ))
-        console_ui_path = Path(resolver.resolve_path(
-            self.config.get('repositories', {}).get('console_ui', {}).get('path',
-            '~/Development/legion/code/console-ui')
-        ))
+        resolved_config = resolver.resolve_variables()
+        
+        # Get repository paths from resolved config
+        enterprise_path = Path(resolved_config.get('repositories', {}).get('enterprise', {}).get('path', 
+            '~/Development/legion/code/enterprise')).expanduser()
+        console_ui_path = Path(resolved_config.get('repositories', {}).get('console_ui', {}).get('path',
+            '~/Development/legion/code/console-ui')).expanduser()
         
         print("""
 ╔══════════════════════════════════════════════════════════════════════════════╗

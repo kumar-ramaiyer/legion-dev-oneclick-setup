@@ -1,7 +1,24 @@
 #!/usr/bin/env python3
 """
 Legion Setup - Git and GitHub Integration Module
-Handles SSH key setup, GitHub authentication, and repository cloning
+================================================
+
+This module manages all Git and GitHub-related setup tasks:
+- SSH key generation and configuration
+- GitHub authentication and SAML SSO setup
+- Repository cloning with smart update logic
+- Submodule initialization and management
+- Git configuration (user, email, etc.)
+
+Key Features:
+- Automatic SSH key generation with passphrase
+- SAML SSO authorization guidance for Legion organization
+- Smart repository updates (avoids re-cloning existing repos)
+- Automatic submodule URL conversion (HTTPS to SSH)
+- GitHub CLI integration
+
+Author: Legion DevOps Team
+Version: 2.0.0
 """
 
 import os
@@ -17,7 +34,34 @@ import time
 import getpass
 
 class GitHubSetup:
+    """
+    Manages Git and GitHub setup for Legion development environment.
+    
+    This class handles:
+    - SSH key generation and management
+    - Git global configuration
+    - Repository cloning and updates
+    - Submodule management
+    - GitHub CLI setup
+    - SAML SSO authorization
+    
+    Attributes:
+        config: Configuration dictionary
+        logger: Logger instance for output
+        platform: Current operating system platform
+        ssh_dir: Path to SSH directory (~/.ssh)
+        git_config: Git-specific configuration
+        repositories: Dictionary of repository configurations
+    """
+    
     def __init__(self, config: Dict, logger):
+        """
+        Initialize GitHub setup handler.
+        
+        Args:
+            config: Configuration dictionary with git and repository settings
+            logger: Logger instance for output and debugging
+        """
         self.config = config
         self.logger = logger
         self.platform = platform.system().lower()
@@ -31,13 +75,13 @@ class GitHubSetup:
         try:
             from .config_resolver import ConfigResolver
             resolver = ConfigResolver(config)
+            resolved_config = resolver.resolve_variables()
             
             # Get resolved paths from config
-            for repo_name, repo_config in config.get('repositories', {}).items():
-                resolved_path = resolver.resolve_path(repo_config.get('path', ''))
+            for repo_name, repo_config in resolved_config.get('repositories', {}).items():
                 self.repositories[repo_name] = {
                     'url': repo_config.get('url', ''),
-                    'path': Path(resolved_path),
+                    'path': Path(repo_config.get('path', '')).expanduser(),
                     'has_submodules': repo_config.get('clone_submodules', False),
                     'submodules': ['console-ui'] if repo_name == 'enterprise' else []
                 }
@@ -59,7 +103,20 @@ class GitHubSetup:
             }
 
     def setup_git_configuration(self) -> Tuple[bool, str]:
-        """Setup global Git configuration."""
+        """
+        Setup global Git configuration.
+        
+        Configures Git with:
+        - User name and email
+        - Default branch name (main)
+        - Pull strategy (rebase false)
+        - Line ending handling
+        - Default editor
+        - Credential storage
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Setting up Git configuration...")
         
         try:
@@ -96,7 +153,20 @@ class GitHubSetup:
             return False, f"Git configuration error: {str(e)}"
 
     def setup_ssh_keys(self) -> Tuple[bool, str]:
-        """Setup SSH keys for GitHub authentication."""
+        """
+        Setup SSH keys for GitHub authentication.
+        
+        Process:
+        1. Check for existing SSH keys
+        2. Generate new ED25519 key if needed
+        3. Add key to SSH agent
+        4. Display instructions for adding to GitHub
+        5. Guide through SAML SSO authorization
+        6. Verify SSH connection to GitHub
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Setting up SSH keys for GitHub...")
         
         try:
@@ -148,7 +218,18 @@ class GitHubSetup:
             return False, f"SSH key setup error: {str(e)}"
 
     def _add_ssh_key_to_agent(self, ssh_key_path: Path) -> None:
-        """Add SSH key to the SSH agent."""
+        """
+        Add SSH key to the SSH agent.
+        
+        Platform-specific handling:
+        - macOS: Uses --apple-use-keychain for keychain integration
+        - Linux: Standard ssh-add
+        
+        Automatically provides passphrase from configuration.
+        
+        Args:
+            ssh_key_path: Path to the SSH private key
+        """
         import platform
         
         try:
@@ -170,7 +251,19 @@ class GitHubSetup:
             self.logger.warning("Could not add SSH key to agent automatically (passphrase will be needed for git operations)")
 
     def _show_ssh_key_instructions(self, public_key: str) -> None:
-        """Show instructions for adding SSH key to GitHub."""
+        """
+        Display instructions for adding SSH key to GitHub.
+        
+        Features:
+        - Automatically copies key to clipboard on macOS
+        - Saves key to file for manual copying
+        - Provides step-by-step GitHub instructions
+        - Includes SAML SSO authorization steps
+        - Waits for user confirmation (ignores auto_confirm)
+        
+        Args:
+            public_key: The SSH public key content to add to GitHub
+        """
         import platform
         import subprocess
         from pathlib import Path
@@ -236,7 +329,19 @@ Have you added AND authorized the SSH key for legionco? (y/n): """, end='')
                 print("Please enter 'y' for yes or 'n' for no: ", end='')
 
     def _verify_ssh_key_setup(self, ssh_pub_key_path: Path, retry_count: int = 0) -> Tuple[bool, str]:
-        """Verify SSH key is properly set up."""
+        """
+        Verify SSH key is properly set up with GitHub.
+        
+        Tests SSH connection to GitHub and retries if needed.
+        Handles the quirk that GitHub returns exit code 1 on successful auth.
+        
+        Args:
+            ssh_pub_key_path: Path to SSH public key file
+            retry_count: Current retry attempt number
+            
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         max_retries = 3
         
         try:
@@ -272,7 +377,20 @@ Have you added AND authorized the SSH key for legionco? (y/n): """, end='')
             return False, f"SSH verification error: {str(e)}"
 
     def clone_repositories(self) -> Tuple[bool, str]:
-        """Clone or update both enterprise and console-ui repositories."""
+        """
+        Clone or update Legion repositories.
+        
+        Smart cloning logic:
+        - Checks if repositories already exist
+        - Updates existing repos instead of re-cloning
+        - Only re-clones if repository is corrupted or has wrong remote
+        - Handles submodules intelligently
+        
+        Supports force_fresh_clone option to always re-clone when needed.
+        
+        Returns:
+            Tuple[bool, str]: (Overall success status, summary message)
+        """
         self.logger.info("Setting up Legion repositories...")
         
         # Check if we should force fresh clones
@@ -302,7 +420,23 @@ Have you added AND authorized the SSH key for legionco? (y/n): """, end='')
         return overall_success, result_message
 
     def _clone_single_repository(self, repo_name: str, repo_config: Dict) -> Tuple[bool, str]:
-        """Clone or update a single repository with proper setup."""
+        """
+        Clone or update a single repository with smart logic.
+        
+        Decision flow:
+        1. If force_fresh_clone is True, always remove and re-clone
+        2. If repo exists, verify it's the correct repository
+        3. If correct, fetch and pull updates
+        4. If wrong remote or doesn't exist, clone fresh
+        5. Handle submodules appropriately
+        
+        Args:
+            repo_name: Name of the repository (e.g., 'enterprise', 'console-ui')
+            repo_config: Repository configuration with url, path, submodules info
+            
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         repo_url = repo_config['url']
         repo_path = repo_config['path']
         has_submodules = repo_config.get('has_submodules', False)
@@ -464,7 +598,23 @@ The SSH key needs to be authorized for the Legion organization:
             return False, f"{repo_name} clone error: {str(e)}"
 
     def _update_existing_repository(self, repo_name: str, repo_path: Path, has_submodules: bool) -> Tuple[bool, str]:
-        """Update an existing repository."""
+        """
+        Update an existing repository with latest changes.
+        
+        Operations:
+        1. Fetch latest changes from origin
+        2. Check current branch
+        3. Pull if on main/master/develop
+        4. Update submodules if present
+        
+        Args:
+            repo_name: Name of the repository
+            repo_path: Path to the repository
+            has_submodules: Whether repository has submodules
+            
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         try:
             # Change to repository directory
             original_cwd = os.getcwd()

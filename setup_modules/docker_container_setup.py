@@ -1,7 +1,30 @@
 #!/usr/bin/env python3
 """
 Legion Setup - Docker and Container Services Module
-Handles Docker Desktop, Elasticsearch, Redis, and LocalStack setup
+===================================================
+
+This module manages Docker Desktop installation and container orchestration for Legion:
+- Docker Desktop installation and resource configuration
+- Elasticsearch container for search and analytics
+- Redis master/slave for distributed locking
+- LocalStack for AWS service emulation
+- Container health verification
+
+Key Features:
+- Cross-platform Docker installation (macOS/Linux)
+- Automatic resource allocation based on system specs
+- Docker Compose orchestration for multi-container setups
+- Health checks and retry logic for container startup
+- Configuration file updates for service integration
+
+Container Architecture:
+- Elasticsearch: Single-node cluster on port 9200
+- Redis Master: Primary instance on port 6379
+- Redis Slave: Replica instance on port 6380
+- LocalStack: AWS services on port 4566
+
+Author: Legion DevOps Team
+Version: 1.0.0
 """
 
 import os
@@ -16,7 +39,35 @@ import tempfile
 import shutil
 
 class DockerContainerSetup:
+    """
+    Manages Docker Desktop and container services for Legion development.
+    
+    This class handles the complete lifecycle of Docker and containerized services:
+    - Installation and configuration of Docker Desktop
+    - Container network creation and management
+    - Service orchestration with health checks
+    - Configuration file updates for service endpoints
+    
+    Attributes:
+        config: Main configuration dictionary
+        logger: Logger instance for output
+        platform: Current OS platform (darwin/linux/windows)
+        docker_config: Docker-specific configuration
+        elasticsearch_config: Elasticsearch settings
+        docker_memory: Allocated RAM in GB for Docker
+        docker_cpus: Number of CPUs for Docker
+        docker_swap: Swap memory in GB
+        es_modifier: Elasticsearch index name modifier
+    """
+    
     def __init__(self, config: Dict, logger):
+        """
+        Initialize Docker container setup handler.
+        
+        Args:
+            config: Configuration dictionary with Docker and service settings
+            logger: Logger instance for output and debugging
+        """
         self.config = config
         self.logger = logger
         self.platform = platform.system().lower()
@@ -32,7 +83,18 @@ class DockerContainerSetup:
         self.es_modifier = self.elasticsearch_config.get('elasticsearch_index_modifier', 'developer')
         
     def setup_docker_desktop(self) -> Tuple[bool, str]:
-        """Install and configure Docker Desktop."""
+        """
+        Install and configure Docker Desktop with optimal resources.
+        
+        Process:
+        1. Check if Docker is already installed
+        2. Install Docker Desktop via Homebrew (macOS) or script (Linux)
+        3. Configure resource limits (CPU, memory, swap)
+        4. Start Docker Desktop and wait for readiness
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Setting up Docker Desktop...")
         
         try:
@@ -53,7 +115,14 @@ class DockerContainerSetup:
             return False, f"Docker setup error: {str(e)}"
     
     def _check_docker_installed(self) -> bool:
-        """Check if Docker is installed."""
+        """
+        Check if Docker is installed and accessible.
+        
+        Verifies Docker installation by running 'docker --version'.
+        
+        Returns:
+            bool: True if Docker is installed and accessible, False otherwise
+        """
         try:
             result = subprocess.run(['docker', '--version'], 
                                   capture_output=True, text=True)
@@ -62,7 +131,18 @@ class DockerContainerSetup:
             return False
     
     def _install_docker_macos(self) -> Tuple[bool, str]:
-        """Install Docker Desktop on macOS."""
+        """
+        Install Docker Desktop on macOS using Homebrew.
+        
+        Process:
+        1. Install Docker Desktop cask via Homebrew
+        2. Launch Docker Desktop application
+        3. Wait for Docker daemon to be ready (up to 60 seconds)
+        4. Configure resource limits
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         try:
             print("""
 ╔══════════════════════════════════════════════════════════════╗
@@ -99,7 +179,17 @@ Installing Docker Desktop via Homebrew...
             return False, f"Docker installation error: {str(e)}"
     
     def _install_docker_linux(self) -> Tuple[bool, str]:
-        """Install Docker on Linux."""
+        """
+        Install Docker Engine on Linux systems.
+        
+        Uses the official Docker installation script from get.docker.com.
+        Adds the current user to the docker group for non-root access.
+        
+        Note: User needs to log out and back in for group changes to take effect.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         try:
             # Install Docker Engine
             install_script = """
@@ -115,7 +205,19 @@ sudo usermod -aG docker $USER
             return False, f"Docker installation error: {str(e)}"
     
     def _configure_docker_resources(self) -> Tuple[bool, str]:
-        """Configure Docker Desktop resources."""
+        """
+        Configure Docker Desktop resource limits.
+        
+        Updates Docker Desktop settings.json with:
+        - CPU count allocation
+        - Memory limit in MiB
+        - Swap memory limit in MiB
+        
+        Restarts Docker Desktop to apply changes on macOS.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         try:
             # Docker Desktop settings location varies by platform
             if self.platform == 'darwin':
@@ -155,7 +257,26 @@ sudo usermod -aG docker $USER
             return True, "Docker installed (manual configuration recommended)"
     
     def setup_elasticsearch(self) -> Tuple[bool, str]:
-        """Setup Elasticsearch container."""
+        """
+        Setup and start Elasticsearch container for Legion.
+        
+        Configuration:
+        - Version: 8.0.0
+        - Mode: Single-node cluster
+        - Security: Disabled for local development
+        - Network: elastic (Docker network)
+        - Ports: 9200 (HTTP), 9300 (transport)
+        
+        Process:
+        1. Create elastic Docker network
+        2. Pull Elasticsearch image
+        3. Stop any existing container
+        4. Start new container with configuration
+        5. Wait for cluster health check
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Setting up Elasticsearch...")
         
         try:
@@ -222,7 +343,20 @@ sudo usermod -aG docker $USER
             return False, f"Elasticsearch setup error: {str(e)}"
     
     def setup_redis(self) -> Tuple[bool, str]:
-        """Setup Redis containers for locking."""
+        """
+        Setup Redis master-slave containers for distributed locking.
+        
+        Architecture:
+        - Redis Master: Primary instance on port 6379
+        - Redis Slave: Replica of master on port 6380
+        - Replication: Automatic from slave to master
+        
+        Uses Docker Compose for orchestration.
+        Creates persistent configuration in ~/.legion_setup/docker/.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Setting up Redis for locking...")
         
         try:
@@ -295,7 +429,23 @@ services:
             return False, f"Redis setup error: {str(e)}"
     
     def setup_localstack(self) -> Tuple[bool, str]:
-        """Setup LocalStack for AWS service emulation."""
+        """
+        Setup LocalStack for local AWS service emulation.
+        
+        LocalStack provides local implementations of AWS services:
+        - S3 for object storage
+        - SQS for message queuing
+        - Lambda for serverless functions
+        - DynamoDB for NoSQL database
+        
+        Installation via Homebrew (macOS) or pip (Linux).
+        Runs as Docker container on port 4566.
+        
+        Note: This is an optional component.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Setting up LocalStack...")
         
         try:
@@ -351,18 +501,31 @@ services:
             return True, "LocalStack setup skipped (optional component)"
     
     def configure_elasticsearch_yaml(self) -> Tuple[bool, str]:
-        """Configure Elasticsearch settings in local.values.yml."""
+        """
+        Configure Elasticsearch and Redis settings in local.values.yml.
+        
+        Updates enterprise repository's local.values.yml with:
+        - Elasticsearch host configuration (localhost:9200)
+        - Elasticsearch index modifier (e.g., 'developer')
+        - Redis master/slave endpoints for locking
+        - AWS Elasticsearch VPC settings (empty for local)
+        
+        Creates the file if it doesn't exist.
+        Preserves existing non-conflicting settings.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Configuring Elasticsearch settings...")
         
         try:
             # Find enterprise repository path
             from .config_resolver import ConfigResolver
             resolver = ConfigResolver(self.config)
+            resolved_config = resolver.resolve_variables()
             
-            enterprise_path = Path(resolver.resolve_path(
-                self.config.get('repositories', {}).get('enterprise', {}).get('path', 
-                '~/Development/legion/code/enterprise')
-            ))
+            enterprise_path = Path(resolved_config.get('repositories', {}).get('enterprise', {}).get('path', 
+                '~/Development/legion/code/enterprise')).expanduser()
             
             if not enterprise_path.exists():
                 return False, "Enterprise repository not found"
@@ -417,7 +580,22 @@ services:
             return True, "Manual configuration of local.values.yml may be needed"
     
     def verify_containers(self) -> Tuple[bool, Dict]:
-        """Verify all containers are running."""
+        """
+        Verify status of all container services.
+        
+        Performs health checks on:
+        - Docker: Daemon accessibility
+        - Elasticsearch: Cluster health endpoint
+        - Redis: TCP connectivity on port 6379
+        - LocalStack: Health check endpoint
+        
+        Critical services: Docker, Elasticsearch, Redis
+        Optional services: LocalStack
+        
+        Returns:
+            Tuple[bool, Dict]: (All critical services running, 
+                               service_name -> status dictionary)
+        """
         self.logger.info("Verifying container services...")
         
         results = {}

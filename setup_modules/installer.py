@@ -1,7 +1,26 @@
 #!/usr/bin/env python3
 """
 Legion Setup - Software Installation Module
-Handles installation of required software components
+===========================================
+
+This module handles the installation of all required software:
+- Development tools (Homebrew, Git)
+- Programming languages (Java 17, Node.js, Python)
+- Build tools (Maven, Yarn, Lerna)
+- Databases (MySQL 8)
+- Container platforms (Docker, Docker Compose)
+- Utilities (Yasha, GLPK)
+
+Key Features:
+- Cross-platform support (macOS, Linux)
+- Automatic Homebrew installation on macOS
+- Version-specific installations
+- Fallback to manual installation when package managers fail
+- Progress tracking with download indicators
+- PATH configuration for all tools
+
+Author: Legion DevOps Team
+Version: 1.0.0
 """
 
 import os
@@ -20,7 +39,33 @@ from typing import Dict, List, Optional, Tuple
 import tempfile
 
 class SoftwareInstaller:
+    """
+    Manages software installation for Legion development environment.
+    
+    This class handles:
+    - Platform detection and platform-specific installation
+    - Package manager usage (Homebrew, apt, yum, dnf)
+    - Manual installation when package managers unavailable
+    - Version verification
+    - PATH configuration
+    - Temporary file management
+    
+    Attributes:
+        config: Configuration dictionary
+        logger: Logger instance for output
+        platform: Current OS platform (darwin, linux, windows)
+        temp_dir: Temporary directory for downloads
+        install_paths: Custom installation paths from config
+    """
+    
     def __init__(self, config: Dict, logger):
+        """
+        Initialize software installer.
+        
+        Args:
+            config: Configuration dictionary with version requirements
+            logger: Logger instance for output and debugging
+        """
         self.config = config
         self.logger = logger
         self.platform = platform.system().lower()
@@ -33,7 +78,16 @@ class SoftwareInstaller:
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def install_homebrew(self) -> Tuple[bool, str]:
-        """Install Homebrew on macOS."""
+        """
+        Install Homebrew on macOS.
+        
+        Downloads and runs the official Homebrew installation script.
+        Adds Homebrew to PATH for Apple Silicon Macs (/opt/homebrew).
+        Shows clear password prompt message to user.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         if self.platform != 'darwin':
             return True, "Homebrew installation skipped (not macOS)"
         
@@ -70,7 +124,19 @@ class SoftwareInstaller:
             return False, f"Homebrew installation error: {str(e)}"
 
     def install_java_corretto(self) -> Tuple[bool, str]:
-        """Install Amazon Corretto JDK 17."""
+        """
+        Install Amazon Corretto JDK 17.
+        
+        Installation methods:
+        1. Homebrew cask on macOS
+        2. Package manager on Linux (apt/yum/dnf)
+        3. Manual PKG installation as fallback
+        
+        Corretto is Amazon's production-ready distribution of OpenJDK.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Installing Amazon Corretto JDK 17...")
         
         if self.platform == 'darwin':
@@ -210,7 +276,20 @@ class SoftwareInstaller:
             return False, f"Manual Maven installation error: {str(e)}"
 
     def install_nodejs(self) -> Tuple[bool, str]:
-        """Install Node.js using NVM."""
+        """
+        Install Node.js using NVM (Node Version Manager).
+        
+        Process:
+        1. Install NVM if not present
+        2. Install specified Node.js version (or latest)
+        3. Set as default version
+        4. Install global packages (Yarn, Lerna)
+        
+        NVM allows multiple Node.js versions to coexist.
+        
+        Returns:
+            Tuple[bool, str]: (Success status, descriptive message)
+        """
         self.logger.info("Installing Node.js...")
         
         node_version = self.config.get('versions', {}).get('node', 'latest')
