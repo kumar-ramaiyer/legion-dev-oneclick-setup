@@ -55,8 +55,13 @@ start_logging() {
 
 # Function to stop logging
 stop_logging() {
-    exec 1>&3 2>&4
-    exec 3>&- 4>&-
+    # Only restore if descriptors exist
+    if [[ -e /dev/fd/3 ]]; then
+        exec 1>&3 3>&-
+    fi
+    if [[ -e /dev/fd/4 ]]; then
+        exec 2>&4 4>&-
+    fi
     
     echo "" >> "$LOG_FILE"
     echo "========================================" >> "$LOG_FILE"
@@ -286,28 +291,21 @@ EOF
 # Function to show help
 show_help() {
     cat << 'EOF'
-Legion Enterprise Development Environment Setup
+Legion Enterprise Development Environment Setup - ONE CLICK SETUP
 
-Usage: ./setup.sh [OPTIONS]
+Usage: ./setup.sh
 
-Options:
-    --help, -h          Show this help message
-    --config FILE       Use custom configuration file
-    --dry-run          Show what would be done without executing
-    --verbose          Enable verbose logging
-    --validate-only    Run validation checks only
-    --resume-from STAGE Resume setup from specific stage
-    --force-continue   Continue despite prerequisite warnings
-    --generate-report  Generate diagnostic report
+This is a ONE-CLICK setup that will:
+1. Ask you 4 simple questions (name, email, github, ssh passphrase)
+2. Install all required software automatically
+3. Configure your complete development environment
+4. Get you coding in 45-90 minutes!
 
-Examples:
-    ./setup.sh                          # Standard setup
-    ./setup.sh --dry-run               # Preview what will be done
-    ./setup.sh --config my_config.yaml # Use custom config
-    ./setup.sh --validate-only         # Check environment only
-    ./setup.sh --verbose               # Detailed output
+Just run: ./setup.sh
 
-For more information, see SETUP_GUIDE.md
+That's it! No options needed.
+
+For documentation, see README.md
 EOF
 }
 
@@ -331,33 +329,22 @@ main() {
     
     local args=()
     
-    # Parse command line arguments
+    # Parse command line arguments - simplified for one-click
     while [[ $# -gt 0 ]]; do
         case $1 in
             --help|-h)
                 show_help
                 exit 0
                 ;;
-            --config)
-                CONFIG_FILE="$2"
-                args+=("--config" "$2")
-                shift 2
-                ;;
-            --dry-run|--validate-only|--verbose|--force-continue|--generate-report)
-                args+=("$1")
-                shift
-                ;;
-            --resume-from)
-                args+=("--resume-from" "$2")
-                shift 2
-                ;;
             *)
-                print_error "Unknown option: $1"
-                echo "Use --help for usage information"
-                exit 1
+                # Ignore any other arguments for true one-click experience
+                shift
                 ;;
         esac
     done
+    
+    # Always use verbose mode for transparency
+    args+=("--verbose")
     
     # Show banner
     show_banner

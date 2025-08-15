@@ -332,6 +332,66 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
         except Exception as e:
             return False, f"MySQL installation error: {str(e)}"
 
+    def install_yarn(self) -> Tuple[bool, str]:
+        """Install Yarn package manager."""
+        self.logger.info("Installing Yarn...")
+        
+        try:
+            # Install using npm
+            result = subprocess.run(
+                ['npm', 'install', '-g', 'yarn'],
+                capture_output=True, text=True, timeout=300
+            )
+            
+            if result.returncode == 0:
+                return True, "Yarn installed successfully"
+            else:
+                # Try with sudo if permission denied
+                if 'permission' in result.stderr.lower() or 'access' in result.stderr.lower():
+                    result = subprocess.run(
+                        ['sudo', 'npm', 'install', '-g', 'yarn'],
+                        capture_output=True, text=True, timeout=300
+                    )
+                    if result.returncode == 0:
+                        return True, "Yarn installed successfully (with sudo)"
+                
+                return False, f"Yarn installation failed: {result.stderr}"
+                
+        except FileNotFoundError:
+            return False, "npm not found - install Node.js first"
+        except Exception as e:
+            return False, f"Yarn installation error: {str(e)}"
+    
+    def install_lerna(self) -> Tuple[bool, str]:
+        """Install Lerna v6 for monorepo management."""
+        self.logger.info("Installing Lerna v6...")
+        
+        try:
+            # Install Lerna v6 specifically
+            result = subprocess.run(
+                ['npm', 'install', '-g', 'lerna@6'],
+                capture_output=True, text=True, timeout=300
+            )
+            
+            if result.returncode == 0:
+                return True, "Lerna v6 installed successfully"
+            else:
+                # Try with sudo if permission denied
+                if 'permission' in result.stderr.lower() or 'access' in result.stderr.lower():
+                    result = subprocess.run(
+                        ['sudo', 'npm', 'install', '-g', 'lerna@6'],
+                        capture_output=True, text=True, timeout=300
+                    )
+                    if result.returncode == 0:
+                        return True, "Lerna v6 installed successfully (with sudo)"
+                
+                return False, f"Lerna installation failed: {result.stderr}"
+                
+        except FileNotFoundError:
+            return False, "npm not found - install Node.js first"
+        except Exception as e:
+            return False, f"Lerna installation error: {str(e)}"
+    
     def install_python_packages(self) -> Tuple[bool, str]:
         """Install required Python packages."""
         self.logger.info("Installing Python packages...")

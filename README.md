@@ -4,29 +4,38 @@
 
 Enterprise-grade setup automation designed for 100+ developers across macOS and Linux platforms.
 
-## Quick Start
+## Quick Start - TRUE ONE CLICK!
 
 ```bash
 # 1. Clone or download this setup package
 cd legion-dev-oneclick-setup
 
-# 2. Run the setup (interactive)
+# 2. Run the setup - that's it!
 ./setup.sh
 
-# 3. Follow the prompts and enjoy your configured environment!
+# The script will:
+#   - Ask you just 4 questions (name, email, github, ssh passphrase)
+#   - Install everything automatically  
+#   - No command line options needed!
+#   - Always runs in verbose mode for transparency
 ```
 
 ## What Gets Installed
 
-- ✅ **Java 17** (Amazon Corretto)
+- ✅ **Java 17** (Amazon Corretto) - Specifically checks for version 17
 - ✅ **Maven 3.9.9+** with JFrog Artifactory settings
-- ✅ **Node.js (latest)** with Yarn & Lerna
-- ✅ **MySQL 8.0** with Legion databases (auto-downloaded from Google Drive)
+- ✅ **Node.js 18+** with npm (compatible with both enterprise and console-ui)
+- ✅ **Yarn** (latest) for frontend package management
+- ✅ **Lerna v6** for monorepo management
+- ✅ **MySQL 8.0** with proper UTF8MB4 character set
+- ✅ **Yasha** for template processing
+- ✅ **Python packages** (PyYAML, mysql-connector-python)
 - ✅ **Docker Desktop** with automatic container setup:
   - Elasticsearch 8.0.0 (single-node, no security)
-  - Redis master/slave for distributed locking
+  - Redis master/slave for distributed locking (ports 6379/6380)
   - LocalStack for AWS service emulation
-- ✅ **Git & GitHub** SSH key setup with SAML SSO
+- ✅ **Git & GitHub** SSH key setup with required passphrase
+- ✅ **GLPK library** (installed after Maven build on macOS)
 - ✅ **IntelliJ IDEA** run configurations (optional)
 
 ## Documentation
@@ -36,34 +45,20 @@ cd legion-dev-oneclick-setup
 
 ## Configuration
 
-Edit `setup_config.yaml` to customize your installation:
+The setup will ask you just 4 questions:
+1. **Your full name** - Used for Git configuration
+2. **Your email address** - Used for Git commits  
+3. **Your GitHub username** - For repository access
+4. **SSH key passphrase** - Required for security (e.g., "Legion WFM is awesome")
 
-```yaml
-user:
-  name: "Your Name"
-  email: "your.email@company.com"
-  github_username: "yourusername"
-
-setup_options:
-  use_snapshot_import: true    # Fast database setup
-  skip_intellij_setup: false  # Include IDE config
-```
-
-## Advanced Usage
-
-```bash
-# Preview what will be installed
-./setup.sh --dry-run
-
-# Custom configuration
-./setup.sh --config my_config.yaml
-
-# Validate existing environment
-./setup.sh --validate-only
-
-# Verbose output for debugging
-./setup.sh --verbose
-```
+That's it! Everything else is automated with smart defaults:
+- MySQL password: `mysql123`
+- Installation path: `~/Development/legion/code/`
+- Node.js: Version 18+ (works with both repos)
+- Docker resources: 4 CPUs, 4GB RAM
+- Verbose logging: Always enabled for transparency
+- Build profile: Development (`-P dev`)
+- Timeout: 30 minutes for large repository clones
 
 ## Requirements
 
@@ -109,18 +104,19 @@ The setup follows a carefully orchestrated 6-stage process that transforms a fre
 
 #### Stage 2: Software Installation (10-15 minutes)
 - **Package Manager Setup**: Installs/updates Homebrew on macOS
-- **Java Installation**: Amazon Corretto JDK 17 with JAVA_HOME configuration
+- **Java Installation**: Amazon Corretto JDK 17 (specifically checks for version 17)
 - **Maven Setup**: Version 3.9.9+ with JFrog Artifactory settings.xml
-- **Node.js Environment**: Latest LTS with npm, yarn, and lerna
-- **MySQL Server**: Version 8.0 with proper character encoding (utf8mb4)
-- **Git Configuration**: User details, SSH keys, and GitHub CLI
+- **Node.js Environment**: Version 18+ with npm, yarn, and lerna v6
+- **MySQL Server**: Version 8.0 with UTF8MB4 character set and collation
+- **Python Packages**: Yasha, PyYAML, mysql-connector-python via pipx
+- **Git Configuration**: User details, SSH keys with passphrase, GitHub CLI
 - **Docker Desktop**: Installation and resource allocation (4 CPUs, 4GB RAM)
 
-#### Stage 3: Repository Setup (5-10 minutes)
-- **SSH Key Generation**: Ed25519 keys with GitHub SAML SSO setup
-- **Repository Cloning**: Legion enterprise repo to `~/Development/legion/code/`
-- **Submodule Configuration**: Converts HTTPS URLs to SSH for authentication
-- **Branch Setup**: Checks out appropriate development branch
+#### Stage 3: Repository Setup (30-45 minutes for large repos)
+- **SSH Key Generation**: Ed25519 keys with required passphrase
+- **Repository Cloning**: Uses HTTPS initially, then sets SSH for future operations
+- **Submodule Handling**: Uses `git submodule update --init --recursive`
+- **Timeout Configuration**: 30-minute timeout for large repository clones
 - **Config Files**: Creates application.yml and local.values.yml
 
 #### Stage 4: Docker Container Setup (5-7 minutes)
@@ -150,9 +146,10 @@ The setup follows a carefully orchestrated 6-stage process that transforms a fre
 - **Schema Updates**: Stored procedures, triggers, collation fixes
 - **User Setup**: Creates development user with full access
 
-#### Stage 6: Build & Verification (10-15 minutes)
-- **Maven Build**: `mvn clean install -DskipTests`
-- **Frontend Setup**: npm/yarn install in console-ui
+#### Stage 6: Build & Verification (15-25 minutes)
+- **Maven Build**: `mvn clean install -P dev -DskipTests -Dcheckstyle.skip -Djavax.net.ssl.trustStorePassword=changeit`
+- **GLPK Library**: Installs optimization library after build (macOS)
+- **Frontend Setup**: Yarn install, Lerna bootstrap, Lerna build for console-ui
 - **Service Validation**: Tests all connections and endpoints
 - **IDE Configuration**: IntelliJ run configurations (optional)
 
@@ -167,12 +164,12 @@ After successful completion, you'll see a comprehensive summary showing:
 
 📋 CONFIGURATION SUMMARY:
 ─────────────────────────────────────────────────────────────────
-  User Name:           John Doe
-  Email:              john.doe@legion.co
-  GitHub Username:    jdoe
-  Elasticsearch ID:   jd
+  User Name:           [Your Name]
+  Email:              [your.email@example.com]
+  GitHub Username:    [your-github-username]
+  Elasticsearch ID:   [auto-generated]
   Repository Path:    ~/Development/legion/code/enterprise
-  MySQL Password:     mysql123
+  MySQL Password:     [configured]
 
 ✅ INSTALLED SOFTWARE:
 ─────────────────────────────────────────────────────────────────

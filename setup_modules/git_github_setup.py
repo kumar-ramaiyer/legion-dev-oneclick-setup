@@ -116,10 +116,15 @@ class GitHubSetup:
             if not user_email:
                 return False, "User email required for SSH key generation"
             
-            self.logger.info("Generating new SSH key...")
+            # Get passphrase from config (required field now)
+            ssh_passphrase = self.config.get('git', {}).get('ssh_passphrase', '')
+            if not ssh_passphrase:
+                return False, "SSH passphrase is required for security. Please run config setup again."
+            
+            self.logger.info("Generating new SSH key with passphrase...")
             subprocess.run([
                 'ssh-keygen', '-t', 'ed25519', '-C', user_email,
-                '-f', str(ssh_key_path), '-N', ''  # No passphrase for automation
+                '-f', str(ssh_key_path), '-N', ssh_passphrase
             ], check=True, capture_output=True, text=True)
             
             # Set proper permissions
@@ -144,13 +149,25 @@ class GitHubSetup:
 
     def _add_ssh_key_to_agent(self, ssh_key_path: Path) -> None:
         """Add SSH key to the SSH agent."""
+        import platform
+        
         try:
-            # Start ssh-agent if not running
-            subprocess.run(['ssh-add', str(ssh_key_path)], 
-                         capture_output=True, text=True, check=True)
+            # Get passphrase from config
+            ssh_passphrase = self.config.get('git', {}).get('ssh_passphrase', '')
+            
+            # On macOS, we need to use the keychain
+            if platform.system() == 'Darwin':
+                # Add to keychain for automatic unlocking
+                subprocess.run(['ssh-add', '--apple-use-keychain', str(ssh_key_path)], 
+                             capture_output=True, text=True, input=ssh_passphrase + '\n')
+            else:
+                # On Linux, just add normally
+                subprocess.run(['ssh-add', str(ssh_key_path)], 
+                             capture_output=True, text=True, input=ssh_passphrase + '\n')
+            
             self.logger.info("SSH key added to agent")
         except subprocess.CalledProcessError:
-            self.logger.warning("Could not add SSH key to agent (may need manual setup)")
+            self.logger.warning("Could not add SSH key to agent automatically (passphrase will be needed for git operations)")
 
     def _show_ssh_key_instructions(self, public_key: str) -> None:
         """Show instructions for adding SSH key to GitHub."""
@@ -297,14 +314,35 @@ Have you added AND authorized the SSH key for legionco? (y/n): """, end='')
                 shutil.rmtree(repo_path)
                 self.logger.info(f"Removed existing {repo_name} repository")
             
-            # Clone the repository (without submodules first to avoid HTTPS prompts)
-            subprocess.run([
-                'git', 'clone', repo_url, str(repo_path)
-            ], check=True, capture_output=True, text=True, timeout=300)
-            
-            # Handle submodules separately if needed
-            if has_submodules:
-                self._setup_submodules_with_ssh(repo_path)
+            # Clone the repository (without recursive submodules initially)
+            # Use HTTPS for enterprise repo to avoid auth issues with submodules
+            if repo_name == 'enterprise':
+                https_url = 'https://github.com/legionco/enterprise.git'
+                subprocess.run([
+                    'git', 'clone', https_url, str(repo_path)
+                ], check=True, capture_output=True, text=True, timeout=1800)  # 30 minutes for large repos
+                
+                # After cloning, update the origin to use SSH for future pushes
+                original_cwd = os.getcwd()
+                os.chdir(repo_path)
+                subprocess.run(['git', 'remote', 'set-url', 'origin', repo_url],
+                             capture_output=True, text=True)
+                
+                # Initialize and update submodules as per README instructions
+                self.logger.info("Initializing submodules...")
+                result = subprocess.run(['git', 'submodule', 'update', '--init', '--recursive'],
+                                      capture_output=True, text=True, timeout=1800)  # 30 minutes for submodules
+                if result.returncode != 0:
+                    self.logger.warning(f"Some submodules may not be accessible: {result.stderr}")
+                    # Continue anyway - some submodules might be private
+                
+                os.chdir(original_cwd)
+                self.logger.info(f"Cloned {repo_name} and initialized available submodules")
+            else:
+                # For repos without submodules, use SSH directly
+                subprocess.run([
+                    'git', 'clone', repo_url, str(repo_path)
+                ], check=True, capture_output=True, text=True, timeout=1800)  # 30 minutes for large repos
             
             # Post-clone setup
             self._post_clone_setup(repo_name, repo_path, has_submodules)
@@ -360,8 +398,9 @@ The SSH key needs to be authorized for the Legion organization:
                     
                     # Update submodules if applicable
                     if has_submodules:
-                        # First convert submodule URLs to SSH to avoid HTTPS prompts
-                        self._setup_submodules_with_ssh(repo_path)
+                        # Update submodules (they were cloned with --recurse-submodules)
+                        subprocess.run(['git', 'submodule', 'update', '--init', '--recursive'],
+                                     capture_output=True, text=True)
                 
                 return True, f"{repo_name} updated successfully"
                 
@@ -455,14 +494,25 @@ The SSH key needs to be authorized for the Legion organization:
     def _setup_enterprise_submodules(self, repo_path: Path) -> None:
         """Setup enterprise repository submodules properly."""
         try:
-            # Sync submodules to latest
-            subprocess.run(['git', 'submodule', 'update', '--recursive', '--remote'], 
-                         capture_output=True, text=True)
+            # Verify submodules are initialized (they should be from clone step)
+            result = subprocess.run(['git', 'submodule', 'status'], 
+                                  capture_output=True, text=True)
             
-            self.logger.info("Enterprise submodules synced to latest")
+            if result.returncode == 0:
+                # Check if any submodules need updating to latest
+                # Using --remote as per README for forcing sync to latest
+                update_result = subprocess.run(['git', 'submodule', 'update', '--recursive', '--remote'],
+                                              capture_output=True, text=True)
+                if update_result.returncode == 0:
+                    self.logger.info("Enterprise submodules synced to latest")
+                else:
+                    # This is not critical - some submodules might be private
+                    self.logger.info("Submodules initialized (some may be private/inaccessible)")
+            else:
+                self.logger.warning(f"Submodule status check: {result.stderr}")
             
         except subprocess.CalledProcessError as e:
-            self.logger.warning(f"Submodule sync warning: {str(e)}")
+            self.logger.warning(f"Submodule setup warning: {str(e)}")
 
     def _setup_enterprise_specific_config(self, repo_path: Path) -> None:
         """Setup enterprise repository specific configurations."""
