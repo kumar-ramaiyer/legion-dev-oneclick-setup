@@ -224,6 +224,23 @@ After successful completion, you'll see a comprehensive summary showing:
 ====================================================================
 ```
 
+## 🔒 Python Virtual Environment Isolation
+
+**ALL Python operations run in an isolated virtual environment** to prevent conflicts with your system Python:
+
+- ✅ **Automatic venv creation**: The setup automatically creates `./venv` on first run
+- ✅ **Isolated dependencies**: All Python packages install only in the virtual environment
+- ✅ **No system pollution**: Your system Python remains untouched
+- ✅ **Consistent execution**: All scripts automatically use venv Python
+
+### Virtual Environment Commands:
+```bash
+make venv         # Create virtual environment
+make venv-deps    # Ensure all dependencies are installed
+make venv-status  # Check virtual environment status
+make venv-clean   # Remove virtual environment
+```
+
 ## 📁 Directory Structure
 
 The setup uses a hybrid approach for file organization:
@@ -235,7 +252,9 @@ legion-dev-oneclick-setup/
 ├── setup_config.yaml           # Your configuration file
 ├── setup.sh                    # Main entry point
 ├── legion_dev_setup.py         # Core orchestrator
-└── setup_modules/              # Setup components
+├── setup_modules/              # Setup components
+├── scripts/                    # Helper scripts (all use venv)
+└── docs/                       # Documentation files
 ```
 
 ### Home Directory (`~/.legion_setup/`)
@@ -280,8 +299,8 @@ legion-dev-oneclick-setup/
 4. **Virtual Environment Issues**
    ```bash
    # Recreate virtual environment
-   ./setup_venv.sh clean
-   ./setup_venv.sh create
+   ./scripts/setup_venv.sh clean
+   ./scripts/setup_venv.sh create
    ```
 
 ## 🛠️ Advanced Features

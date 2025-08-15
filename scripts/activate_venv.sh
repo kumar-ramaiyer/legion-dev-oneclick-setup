@@ -2,10 +2,11 @@
 # Legion Dev Setup - Virtual Environment Activation Script
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/venv"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+VENV_DIR="$PROJECT_DIR/venv"
 
 if [[ ! -f "$VENV_DIR/bin/activate" ]]; then
-    echo "❌ Virtual environment not found. Run ./setup_venv.sh first."
+    echo "❌ Virtual environment not found. Run ./scripts/setup_venv.sh first."
     exit 1
 fi
 
