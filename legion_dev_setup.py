@@ -1149,6 +1149,16 @@ Backups will be created in: {self.backup_dir}
             # Install each component
             self.logger.info(f"Will install {len(software_to_install)} components: {', '.join(software_to_install)}")
             
+            # Alert user about password requirements
+            if software_to_install:
+                print("\n" + "="*60)
+                print("🔐 SOFTWARE INSTALLATION NOTICE")
+                print("="*60)
+                print("Some installations require administrator privileges.")
+                print("You may be prompted for your Mac login password.")
+                print("The password won't be visible as you type.")
+                print("="*60 + "\n")
+            
             for software in software_to_install:
                 total_count += 1
                 self.logger.info(f"Installing {software}...")

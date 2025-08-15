@@ -39,6 +39,15 @@ class SoftwareInstaller:
         
         self.logger.info("Installing Homebrew...")
         
+        # Alert user that password will be needed
+        print("\n" + "="*60)
+        print("🔐 HOMEBREW INSTALLATION")
+        print("="*60)
+        print("Homebrew requires your macOS password to install.")
+        print("Please enter your Mac login password when prompted.")
+        print("Note: The password won't be visible as you type.")
+        print("="*60 + "\n")
+        
         try:
             # Download and run Homebrew install script
             install_script = """
@@ -89,6 +98,14 @@ class SoftwareInstaller:
             pkg_file = self.temp_dir / "corretto-17.pkg"
             
             self._download_file(download_url, pkg_file)
+            
+            # Alert user about password requirement
+            print("\n" + "="*60)
+            print("🔐 JAVA INSTALLATION")
+            print("="*60)
+            print("Installing Java requires administrator privileges.")
+            print("Please enter your Mac login password when prompted.")
+            print("="*60 + "\n")
             
             # Install the package
             result = subprocess.run(
@@ -577,7 +594,7 @@ services:
                             progress = (downloaded / total_size) * 100
                             print(f"\rDownloading: {progress:.1f}%", end='', flush=True)
                 
-                print()  # New line after progress
+                print("\n")  # Add extra spacing after progress for clarity
                 
         except urllib.error.URLError as e:
             raise Exception(f"Failed to download {url}: {str(e)}")
