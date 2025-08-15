@@ -194,7 +194,7 @@ def create_simple_config():
             'no_proxy': 'localhost,127.0.0.1'
         },
         'versions': {
-            'node': 'latest',
+            'node': '18',
             'yarn': 'latest',
             'lerna': '6',
             'maven': '3.9.9',

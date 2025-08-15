@@ -837,11 +837,13 @@ versions:
                 version = result.stdout.strip().lstrip('v')
                 required_version = self.config.get('versions', {}).get('node', 'latest')
                 
-                # If required_version is "latest", accept any version 16+
-                if required_version == 'latest':
-                    major_version = int(version.split('.')[0])
-                    if major_version >= 16:  # Console-UI needs 16+
-                        self.logger.info(f"✅ Node.js {version} found (16+ required)")
+                # Check version requirements
+                major_version = int(version.split('.')[0])
+                
+                # Console-UI requires Node 18, enterprise can use 18 too
+                if required_version == '18' or required_version == 'latest':
+                    if major_version == 18:
+                        self.logger.info(f"✅ Node.js {version} found (v18 required)")
                         return SetupResult(
                             success=True,
                             message=f"Node.js {version} found",
@@ -852,7 +854,7 @@ versions:
                     else:
                         return SetupResult(
                             success=False,
-                            message=f"Node.js {version} found but 16+ required for console-ui",
+                            message=f"Node.js {version} found but v18 required for console-ui",
                             stage=SetupStage.VALIDATION,
                             duration=time.time() - start_time
                         )
@@ -877,7 +879,7 @@ versions:
         
         return SetupResult(
             success=False,
-            message="Node.js not found. Node.js 16+ is required for console-ui.",
+            message="Node.js not found. Node.js 18 is required for console-ui and enterprise.",
             stage=SetupStage.VALIDATION,
             duration=time.time() - start_time
         )

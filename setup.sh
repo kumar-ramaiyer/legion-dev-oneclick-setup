@@ -89,6 +89,14 @@ setup_python_environment() {
     # Upgrade pip and install requirements
     print_status "Installing Python dependencies..."
     "$VENV_DIR/bin/pip" install --upgrade pip >/dev/null 2>&1
+    
+    # Special handling for PyYAML on Python 3.13
+    if python3 -c "import sys; exit(0 if sys.version_info[:2] >= (3, 13) else 1)" 2>/dev/null; then
+        print_status "Installing PyYAML with special flags for Python 3.13..."
+        "$VENV_DIR/bin/pip" install --no-build-isolation PyYAML==6.0.2
+    fi
+    
+    # Install the rest of the requirements
     "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
     print_success "Python dependencies installed"
 }
@@ -148,7 +156,7 @@ paths:
   mysql_data_path: ""
 
 versions:
-  node: "latest"
+  node: "18"
   yarn: "latest"
   lerna: "6"
   maven: "3.9.9"
