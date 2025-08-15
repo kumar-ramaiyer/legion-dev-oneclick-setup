@@ -139,8 +139,8 @@ Have you downloaded settings.xml to {self.m2_dir}? (y/n): """, end='')
             tree = ET.parse(settings_path)
             root = tree.getroot()
             
-            # Check for required elements
-            required_elements = ['servers', 'mirrors', 'profiles']
+            # Check for required elements (mirrors is optional)
+            required_elements = ['servers', 'profiles']
             missing_elements = []
             
             for element in required_elements:
@@ -148,19 +148,33 @@ Have you downloaded settings.xml to {self.m2_dir}? (y/n): """, end='')
                     missing_elements.append(element)
             
             if missing_elements:
-                self.logger.warning(f"Settings.xml missing elements: {', '.join(missing_elements)}")
+                self.logger.warning(f"Settings.xml missing required elements: {', '.join(missing_elements)}")
                 return False
             
             # Check for JFrog-specific configuration
+            # Look for legion.jfrog.io URLs or typical JFrog server IDs
             jfrog_found = False
+            
+            # Check in servers section
             for server in root.findall('.//server'):
                 server_id = server.find('id')
-                if server_id is not None and 'artifactory' in server_id.text.lower():
-                    jfrog_found = True
-                    break
+                if server_id is not None:
+                    id_text = server_id.text.lower()
+                    # Check for common JFrog server IDs
+                    if any(x in id_text for x in ['central', 'snapshots', 'artifactory', 'libs-']):
+                        jfrog_found = True
+                        break
+            
+            # Also check in repository URLs
+            if not jfrog_found:
+                for repo in root.findall('.//repository'):
+                    url_elem = repo.find('url')
+                    if url_elem is not None and 'jfrog.io' in url_elem.text:
+                        jfrog_found = True
+                        break
             
             if not jfrog_found:
-                self.logger.warning("No JFrog Artifactory server configuration found in settings.xml")
+                self.logger.warning("No JFrog configuration found in settings.xml (check servers and repository URLs)")
             
             self.logger.info("✅ Settings.xml validation passed")
             return True
@@ -536,11 +550,22 @@ Have you downloaded settings.xml to {self.m2_dir}? (y/n): """, end='')
             root = tree.getroot()
             has_jfrog_config = False
             
+            # Check servers
             for server in root.findall('.//server'):
                 server_id = server.find('id')
-                if server_id is not None and 'artifactory' in server_id.text.lower():
-                    has_jfrog_config = True
-                    break
+                if server_id is not None:
+                    id_text = server_id.text.lower()
+                    if any(x in id_text for x in ['central', 'snapshots', 'artifactory', 'libs-']):
+                        has_jfrog_config = True
+                        break
+            
+            # Also check repository URLs
+            if not has_jfrog_config:
+                for repo in root.findall('.//repository'):
+                    url_elem = repo.find('url')
+                    if url_elem is not None and 'jfrog.io' in url_elem.text:
+                        has_jfrog_config = True
+                        break
             
             return {
                 'success': True,
@@ -618,8 +643,11 @@ Have you downloaded settings.xml to {self.m2_dir}? (y/n): """, end='')
             jfrog_servers = []
             for server in root.findall('.//server'):
                 server_id = server.find('id')
-                if server_id is not None and 'artifactory' in server_id.text.lower():
-                    jfrog_servers.append(server_id.text)
+                if server_id is not None:
+                    id_text = server_id.text.lower()
+                    # Check for common JFrog server IDs
+                    if any(x in id_text for x in ['central', 'snapshots', 'artifactory', 'libs-']):
+                        jfrog_servers.append(server_id.text)
             
             configured = len(jfrog_servers) > 0
             
