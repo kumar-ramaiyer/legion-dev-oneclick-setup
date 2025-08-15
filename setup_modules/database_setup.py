@@ -373,55 +373,55 @@ Press Enter when files are ready...
                 all_success = True
                 
                 for filename, (file_id, is_zip) in files_to_download.items():
-                output_path = snapshot_dir / filename
+                    output_path = snapshot_dir / filename
                 
-                # Skip if already exists (unless it's a zip that needs extraction)
-                if not is_zip:
-                    sql_file = snapshot_dir / filename
-                    if sql_file.exists():
-                        self.logger.info(f"✅ {filename} already exists, skipping download")
-                        continue
-                else:
-                    # Check if the extracted SQL file exists
-                    sql_filename = filename.replace('.zip', '')
-                    sql_file = snapshot_dir / sql_filename
-                    if sql_file.exists():
-                        self.logger.info(f"✅ {sql_filename} already exists, skipping download")
-                        continue
-                
-                print(f"📥 Downloading {filename}...")
-                
-                # Check if the file ID looks valid
-                if 'REPLACE_WITH_ACTUAL_ID' in file_id or len(file_id) < 10:
-                    self.logger.warning(f"Invalid Google Drive ID for {filename}")
-                    print(f"   ⚠️  Skipping {filename} - Google Drive ID not configured")
-                    all_success = False
-                    continue
-                
-                try:
-                    # Download from Google Drive
-                    url = f'https://drive.google.com/uc?id={file_id}'
-                    gdown.download(url, str(output_path), quiet=False)
+                    # Skip if already exists (unless it's a zip that needs extraction)
+                    if not is_zip:
+                        sql_file = snapshot_dir / filename
+                        if sql_file.exists():
+                            self.logger.info(f"✅ {filename} already exists, skipping download")
+                            continue
+                    else:
+                        # Check if the extracted SQL file exists
+                        sql_filename = filename.replace('.zip', '')
+                        sql_file = snapshot_dir / sql_filename
+                        if sql_file.exists():
+                            self.logger.info(f"✅ {sql_filename} already exists, skipping download")
+                            continue
                     
-                    if not output_path.exists():
-                        self.logger.error(f"Failed to download {filename}")
+                    print(f"📥 Downloading {filename}...")
+                    
+                    # Check if the file ID looks valid
+                    if 'REPLACE_WITH_ACTUAL_ID' in file_id or len(file_id) < 10:
+                        self.logger.warning(f"Invalid Google Drive ID for {filename}")
+                        print(f"   ⚠️  Skipping {filename} - Google Drive ID not configured")
                         all_success = False
                         continue
                     
-                    # Extract if it's a zip file
-                    if is_zip and output_path.exists():
-                        print(f"📦 Extracting {filename}...")
-                        with zipfile.ZipFile(output_path, 'r') as zip_ref:
-                            zip_ref.extractall(snapshot_dir)
-                        # Remove the zip file after extraction
-                        output_path.unlink()
-                        self.logger.info(f"✅ Extracted {filename}")
-                    else:
-                        self.logger.info(f"✅ Downloaded {filename}")
+                    try:
+                        # Download from Google Drive
+                        url = f'https://drive.google.com/uc?id={file_id}'
+                        gdown.download(url, str(output_path), quiet=False)
                         
-                except Exception as e:
-                    self.logger.error(f"Failed to download {filename}: {str(e)}")
-                    all_success = False
+                        if not output_path.exists():
+                            self.logger.error(f"Failed to download {filename}")
+                            all_success = False
+                            continue
+                        
+                        # Extract if it's a zip file
+                        if is_zip and output_path.exists():
+                            print(f"📦 Extracting {filename}...")
+                            with zipfile.ZipFile(output_path, 'r') as zip_ref:
+                                zip_ref.extractall(snapshot_dir)
+                            # Remove the zip file after extraction
+                            output_path.unlink()
+                            self.logger.info(f"✅ Extracted {filename}")
+                        else:
+                            self.logger.info(f"✅ Downloaded {filename}")
+                            
+                    except Exception as e:
+                        self.logger.error(f"Failed to download {filename}: {str(e)}")
+                        all_success = False
                     
                     # Try alternate download method using requests
                     if 'drive.google.com' in str(e).lower():

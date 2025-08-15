@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Legion Setup - Simplified Configuration Creator
-Only asks for essential information: name, email, github username
+Only asks for essential information: name, email, github username, ssh passphrase
 """
 
 import os
@@ -60,6 +60,14 @@ def create_simple_config():
     while not github_username:
         print("   ❌ GitHub username is required")
         github_username = input("   > ").strip()
+    
+    print("\n4️⃣  SSH key passphrase (for git operations):")
+    print("   💡 Tip: Use something memorable like 'Legion WFM is awesome'")
+    ssh_passphrase = input("   > ").strip()
+    while not ssh_passphrase:
+        print("   ❌ SSH passphrase cannot be empty (for security)")
+        print("   💡 Suggestion: Legion WFM is awesome")
+        ssh_passphrase = input("   > ").strip()
     
     # If not using defaults, ask additional questions
     workspace_root = '~/Development/legion'
@@ -134,6 +142,7 @@ def create_simple_config():
             'generate_ssh_key': True,
             'setup_github_cli': True,
             'ssh_key_type': 'ed25519',
+            'ssh_passphrase': ssh_passphrase,
             'git_editor': 'nano'
         },
         'repositories': {
@@ -234,6 +243,7 @@ Configuration Type: {config_type}
 👤 User: {name} <{email}>
 🐙 GitHub: @{github_username}
 🔍 Elasticsearch ID: {es_modifier}
+🔐 SSH Passphrase: {"*" * len(ssh_passphrase)}
 
 📁 Code Location: {workspace_root}/{code_directory}/
 🗄️  MySQL Password: {mysql_password}

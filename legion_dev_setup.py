@@ -1103,20 +1103,55 @@ Backups will be created in: {self.backup_dir}
             
             if not self._command_exists('brew') and self.config.get('setup_options', {}).get('install_homebrew', True):
                 software_to_install.append('homebrew')
-            if not self._command_exists('java'):
+                self.logger.info("Homebrew not found - will install")
+            
+            # Check for Java 17 specifically
+            java_installed = False
+            if self._command_exists('java'):
+                # Check version
+                try:
+                    result = subprocess.run(['java', '-version'], capture_output=True, text=True)
+                    output = result.stderr + result.stdout
+                    if '17' in output or 'version "17' in output:
+                        java_installed = True
+                        self.logger.info("Java 17 already installed")
+                except:
+                    pass
+            
+            if not java_installed:
                 software_to_install.append('java')
+                self.logger.info("Java 17 not found - will install")
+                
             if not self._command_exists('mvn'):
                 software_to_install.append('maven')
+                self.logger.info("Maven not found - will install")
+                
             if not self._command_exists('node'):
                 software_to_install.append('nodejs')
+                self.logger.info("Node.js not found - will install")
+                
             if not self._command_exists('mysql'):
                 software_to_install.append('mysql')
+                self.logger.info("MySQL not found - will install")
+                
             if not self._command_exists('yasha'):
                 software_to_install.append('python_packages')
+                self.logger.info("Python packages not found - will install")
+            
+            if not self._command_exists('yarn'):
+                software_to_install.append('yarn')
+                self.logger.info("Yarn not found - will install")
+            
+            if not self._command_exists('lerna'):
+                software_to_install.append('lerna')
+                self.logger.info("Lerna not found - will install")
             
             # Install each component
+            self.logger.info(f"Will install {len(software_to_install)} components: {', '.join(software_to_install)}")
+            
             for software in software_to_install:
                 total_count += 1
+                self.logger.info(f"Installing {software}...")
                 try:
                     if software == 'homebrew':
                         success, message = installer.install_homebrew()
@@ -1130,6 +1165,13 @@ Backups will be created in: {self.backup_dir}
                         success, message = installer.install_mysql()
                     elif software == 'python_packages':
                         success, message = installer.install_python_packages()
+                    elif software == 'yarn':
+                        success, message = installer.install_yarn()
+                    elif software == 'lerna':
+                        success, message = installer.install_lerna()
+                    else:
+                        success = False
+                        message = f"Unknown software: {software}"
                     
                     if success:
                         success_count += 1
@@ -1392,11 +1434,14 @@ Backups will be created in: {self.backup_dir}
             self.logger.info("Building enterprise backend...")
             print("\n📦 Building enterprise backend (this may take 10-15 minutes)...")
             
-            build_command = ['mvn', 'clean', 'install', '-DskipTests']
-            
-            # Add profile for faster build if needed
-            if self.config.get('advanced', {}).get('fast_build', False):
-                build_command.append('-Pfast')
+            # Build command as per README
+            build_command = [
+                'mvn', 'clean', 'install',
+                '-P', 'dev',  # Development profile
+                '-DskipTests',  # Skip tests for faster build
+                '-Dcheckstyle.skip',  # Skip checkstyle for faster build
+                '-Djavax.net.ssl.trustStorePassword=changeit'  # Trust store password
+            ]
             
             try:
                 result = subprocess.run(
@@ -1410,6 +1455,20 @@ Backups will be created in: {self.backup_dir}
                 if result.returncode == 0:
                     self.logger.info("✅ Enterprise backend build successful")
                     steps.append("Enterprise backend: Build successful")
+                    
+                    # Install GLPK library on macOS after build
+                    if platform.system() == 'Darwin':
+                        self.logger.info("Installing GLPK library for macOS...")
+                        try:
+                            glpk_source = enterprise_path / 'core' / 'target' / 'classes' / 'lib' / 'darwin' / 'libglpk.40.dylib'
+                            if glpk_source.exists():
+                                subprocess.run(['sudo', 'mkdir', '-p', '/opt/local/lib'], check=True)
+                                subprocess.run(['sudo', 'cp', str(glpk_source), '/opt/local/lib/'], check=True)
+                                self.logger.info("✅ GLPK library installed")
+                            else:
+                                self.logger.warning("GLPK library file not found in build output")
+                        except Exception as e:
+                            self.logger.warning(f"GLPK library installation failed: {str(e)}")
                 else:
                     self.logger.error(f"Enterprise backend build failed: {result.stderr[-1000:]}")
                     steps.append("Enterprise backend: Build failed")
@@ -1432,37 +1491,53 @@ Backups will be created in: {self.backup_dir}
             
             # Build console-ui frontend if it exists
             if console_ui_path.exists():
-                self.logger.info("Building console-ui frontend...")
-                print("\n🎨 Building console-ui frontend...")
+                self.logger.info("Building console-ui frontend with Yarn and Lerna...")
+                print("\n🎨 Building console-ui frontend (using Yarn and Lerna)...")
                 
                 try:
-                    # Install dependencies
-                    npm_install = subprocess.run(
-                        ['npm', 'install'],
+                    # Step 1: Install top-level dependencies with yarn
+                    self.logger.info("Installing top-level dependencies...")
+                    yarn_install = subprocess.run(
+                        ['yarn'],
                         cwd=str(console_ui_path),
                         capture_output=True,
                         text=True,
                         timeout=600  # 10 minute timeout
                     )
                     
-                    if npm_install.returncode == 0:
-                        # Run build
-                        npm_build = subprocess.run(
-                            ['npm', 'run', 'build'],
+                    if yarn_install.returncode == 0:
+                        # Step 2: Bootstrap with Lerna
+                        self.logger.info("Running lerna bootstrap...")
+                        lerna_bootstrap = subprocess.run(
+                            ['yarn', 'lerna', 'bootstrap'],
                             cwd=str(console_ui_path),
                             capture_output=True,
                             text=True,
-                            timeout=600
+                            timeout=900  # 15 minute timeout
                         )
                         
-                        if npm_build.returncode == 0:
-                            self.logger.info("✅ Console-UI frontend build successful")
-                            steps.append("Console-UI frontend: Build successful")
+                        if lerna_bootstrap.returncode == 0:
+                            # Step 3: Build with Lerna
+                            self.logger.info("Running lerna build...")
+                            lerna_build = subprocess.run(
+                                ['yarn', 'lerna', 'run', 'build'],
+                                cwd=str(console_ui_path),
+                                capture_output=True,
+                                text=True,
+                                timeout=900  # 15 minute timeout
+                            )
+                            
+                            if lerna_build.returncode == 0:
+                                self.logger.info("✅ Console-UI frontend build successful")
+                                steps.append("Console-UI frontend: Build successful")
+                            else:
+                                self.logger.warning(f"Console-UI lerna build failed: {lerna_build.stderr[-500:]}")
+                                steps.append("Console-UI frontend: Build failed (non-critical)")
                         else:
-                            self.logger.warning(f"Console-UI build failed: {npm_build.stderr[-500:]}")
-                            steps.append("Console-UI frontend: Build failed (non-critical)")
+                            self.logger.warning(f"Lerna bootstrap failed: {lerna_bootstrap.stderr[-500:]}")
+                            steps.append("Console-UI frontend: Bootstrap failed (non-critical)")
                     else:
-                        self.logger.warning(f"Console-UI npm install failed: {npm_install.stderr[-500:]}")
+                        self.logger.warning(f"Console-UI yarn install failed: {yarn_install.stderr[-500:]}")
                         steps.append("Console-UI frontend: Install failed (non-critical)")
                         
                 except subprocess.TimeoutExpired:
