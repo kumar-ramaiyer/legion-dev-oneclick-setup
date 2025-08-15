@@ -9,4 +9,6 @@ fi
 
 # Activate and run the config script
 source "$SCRIPT_DIR/venv/bin/activate"
-python "$SCRIPT_DIR/create_config_simple.py" "$@"
+
+# Use the venv's python directly to ensure it works
+"$SCRIPT_DIR/venv/bin/python" "$SCRIPT_DIR/create_config_simple.py" "$@"

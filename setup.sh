@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_SCRIPT="$SCRIPT_DIR/legion_dev_setup.py"
 CONFIG_FILE="$SCRIPT_DIR/setup_config.yaml"
 CONFIG_TEMPLATE="$SCRIPT_DIR/setup_config.yaml.template"
-VENV_DIR="$HOME/.legion_setup/venv"
+VENV_DIR="$SCRIPT_DIR/venv"
 
 # Setup logging
 LOG_DIR="$HOME/.legion_setup/logs"

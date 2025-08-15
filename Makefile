@@ -58,8 +58,8 @@ config: venv
 # Extract Google Drive IDs for database snapshots
 gdrive-ids: venv
 	@echo "🔍 Extracting Google Drive file IDs for database snapshots..."
-	@if [ -f ~/.legion_setup/venv/bin/python ]; then \
-		~/.legion_setup/venv/bin/python extract_gdrive_ids.py; \
+	@if [ -f venv/bin/python ]; then \
+		venv/bin/python extract_gdrive_ids.py; \
 	else \
 		python3 extract_gdrive_ids.py; \
 	fi
