@@ -49,19 +49,36 @@ class JFrogMavenSetup:
         
         settings_path = self.m2_dir / 'settings.xml'
         
-        # Check if settings.xml already exists
+        # Check if settings.xml already exists and is valid
         if settings_path.exists():
-            backup_path = self.m2_dir / 'settings.xml.backup'
-            if not backup_path.exists():
+            self.logger.info(f"Found existing settings.xml at {settings_path}")
+            
+            # Validate the existing settings.xml
+            if self._validate_settings_xml(settings_path):
+                self.logger.info("✅ Existing settings.xml is valid, skipping download")
+                print(f"\n✅ Using existing Maven settings.xml from {settings_path}")
+                
+                # Create backup just in case
+                backup_path = self.m2_dir / f'settings.xml.backup.{time.strftime("%Y%m%d_%H%M%S")}'
+                if not backup_path.exists():
+                    import shutil
+                    shutil.copy2(settings_path, backup_path)
+                    self.logger.info(f"Created backup at {backup_path}")
+                
+                return True, "Using existing valid settings.xml"
+            else:
+                self.logger.warning("Existing settings.xml is invalid or incomplete")
+                # Backup the invalid one
+                backup_path = self.m2_dir / f'settings.xml.invalid.{time.strftime("%Y%m%d_%H%M%S")}'
                 settings_path.rename(backup_path)
-                self.logger.info(f"Existing settings.xml backed up to {backup_path}")
+                self.logger.info(f"Invalid settings.xml moved to {backup_path}")
         
         try:
             # Check if manual download is needed
             if not self.jfrog_config.get('download_settings_xml', True):
                 return self._create_basic_settings_xml(settings_path)
             
-            # Guide user through JFrog settings.xml download
+            # Guide user through JFrog settings.xml download only if needed
             success = self._guide_jfrog_download()
             
             if success and settings_path.exists():

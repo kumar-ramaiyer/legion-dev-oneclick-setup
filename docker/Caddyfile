@@ -1,0 +1,128 @@
+# Caddyfile for Legion Development Environment
+# Provides HTTPS with self-signed certificates for local development
+
+# Global options
+{
+    # Use local CA for development
+    local_certs
+    # Enable debug logging
+    debug
+}
+
+# Main Legion application (HTTPS)
+https://legion.local {
+    # Backend API proxy
+    handle /api/* {
+        reverse_proxy host.docker.internal:8080 {
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+    
+    # Frontend proxy (when running locally)
+    handle /* {
+        reverse_proxy host.docker.internal:3000 {
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Security headers
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Allow WebSocket connections
+        -Server
+    }
+
+    # Enable compression
+    encode gzip
+
+    # Logging
+    log {
+        output file /var/log/caddy/legion.log
+        format json
+    }
+}
+
+# Alternative access via localhost (HTTPS)
+https://localhost {
+    redir https://legion.local{uri} permanent
+}
+
+# Elasticsearch UI (if using Kibana)
+https://kibana.legion.local {
+    reverse_proxy elasticsearch:5601
+    
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+    }
+}
+
+# MailHog Web UI
+https://mail.legion.local {
+    reverse_proxy mailhog:8025
+    
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+    }
+}
+
+# Jaeger UI for tracing
+https://tracing.legion.local {
+    reverse_proxy jaeger:16686
+    
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+    }
+}
+
+# LocalStack dashboard (if enabled)
+https://localstack.legion.local {
+    reverse_proxy localstack:4566
+    
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+    }
+}
+
+# Redirect HTTP to HTTPS
+http://legion.local {
+    redir https://legion.local{uri} permanent
+}
+
+http://localhost {
+    redir https://legion.local{uri} permanent
+}
+
+# Health check endpoint
+https://health.legion.local {
+    respond /health "OK" 200
+    
+    handle /services {
+        respond <<JSON
+        {
+            "mysql": "localhost:3306",
+            "elasticsearch": "localhost:9200",
+            "redis-master": "localhost:6379",
+            "redis-slave": "localhost:6380",
+            "localstack": "localhost:4566",
+            "mailhog-smtp": "localhost:1025",
+            "mailhog-ui": "https://mail.legion.local",
+            "jaeger": "https://tracing.legion.local"
+        }
+        JSON 200 {
+            Content-Type "application/json"
+        }
+    }
+}

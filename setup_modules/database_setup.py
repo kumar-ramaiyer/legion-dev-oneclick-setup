@@ -322,46 +322,90 @@ class DatabaseSetup:
         self.logger.info("Importing snapshot data...")
         
         try:
-            snapshot_dir = Path.home() / 'Legion_DB_Snapshots'
-            snapshot_dir.mkdir(exist_ok=True)
+            # Use dbdumps folder from config
+            dbdumps_folder = self.db_config.get('dbdumps_folder', '~/work/dbdumps')
+            snapshot_dir = Path(dbdumps_folder).expanduser()
             
-            # Try to automatically download from Google Drive
-            download_success = self._download_snapshot_files(snapshot_dir)
+            if not snapshot_dir.exists():
+                snapshot_dir.mkdir(parents=True, exist_ok=True)
+                self.logger.info(f"Created dbdumps directory: {snapshot_dir}")
             
-            if not download_success:
-                # Fall back to manual download
-                self.logger.warning("⚠️  Automatic download failed. Manual download required.")
-                print(f"""
+            # Check for files and wait if missing (like we do for settings.xml)
+            required_files = {
+                'storedprocedures.sql': False,  # Not zipped
+                'legiondb.sql.zip': True,       # Zipped
+                'legiondb0.sql.zip': True        # Zipped
+            }
+            
+            files_ready = False
+            while not files_ready:
+                missing_files = []
+                files_to_unzip = []
+                
+                for filename, is_zipped in required_files.items():
+                    file_path = snapshot_dir / filename
+                    
+                    if is_zipped:
+                        # Check if zip exists
+                        if file_path.exists():
+                            files_to_unzip.append((file_path, filename))
+                        else:
+                            # Check if already unzipped
+                            unzipped_name = filename.replace('.zip', '')
+                            unzipped_path = snapshot_dir / unzipped_name
+                            if not unzipped_path.exists():
+                                missing_files.append(filename)
+                    else:
+                        # Just check if file exists
+                        if not file_path.exists():
+                            missing_files.append(filename)
+                
+                if missing_files:
+                    print(f"""
 ╔══════════════════════════════════════════════════════════════╗
-║                   MANUAL DOWNLOAD REQUIRED                  ║
+║              DATABASE SNAPSHOTS REQUIRED                    ║
 ╚══════════════════════════════════════════════════════════════╝
 
-Please download the following files from Google Drive:
+📁 Looking in: {snapshot_dir}
+
+❌ Missing files: {', '.join(missing_files)}
+
+Please download these files from Google Drive:
+https://drive.google.com/drive/folders/1WhTR6fP9KkFO4m7mxLSGu-Ksf4erQ6RK
+
+Required files:
 - storedprocedures.sql
-- legiondb.sql.zip (extract to legiondb.sql)  
-- legiondb0.sql.zip (extract to legiondb0.sql)
+- legiondb.sql.zip
+- legiondb0.sql.zip
 
-Save them to: {snapshot_dir}
-
-Google Drive Link: https://drive.google.com/drive/folders/1WhTR6fP9KkFO4m7mxLSGu-Ksf4erQ6RK
-
-Press Enter when files are ready...
-                """)
-                
-                if not self.config.get('advanced', {}).get('auto_confirm', False):
-                    input()
+Waiting for files... (Press Ctrl+C to abort)
+                    """)
+                    time.sleep(5)  # Wait 5 seconds before checking again
+                else:
+                    # Unzip any zipped files
+                    for zip_path, filename in files_to_unzip:
+                        unzipped_name = filename.replace('.zip', '')
+                        unzipped_path = snapshot_dir / unzipped_name
+                        
+                        if not unzipped_path.exists():
+                            self.logger.info(f"Unzipping {filename}...")
+                            import zipfile
+                            try:
+                                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                                    zip_ref.extractall(snapshot_dir)
+                                self.logger.info(f"✅ Unzipped {filename}")
+                            except Exception as e:
+                                self.logger.error(f"Failed to unzip {filename}: {e}")
+                                return False, f"Failed to unzip {filename}: {e}"
+                    
+                    files_ready = True
             
-            # Check for required files
-            required_files = ['storedprocedures.sql', 'legiondb.sql', 'legiondb0.sql']
-            missing_files = []
-            
-            for file in required_files:
+            # Verify all SQL files exist
+            sql_files = ['storedprocedures.sql', 'legiondb.sql', 'legiondb0.sql']
+            for file in sql_files:
                 file_path = snapshot_dir / file
                 if not file_path.exists():
-                    missing_files.append(str(file_path))
-            
-            if missing_files:
-                return False, f"Missing snapshot files: {', '.join(missing_files)}"
+                    return False, f"Missing SQL file after extraction: {file}"
             
             # Import legiondb
             legiondb_result = self._import_sql_file(
@@ -856,49 +900,77 @@ Continuing with empty system schema creation...
         self.logger.info("Fixing collation mismatches...")
         
         try:
-            # Python script to fix collations
-            collation_script = """
-import mysql.connector
-
-def fix_collation(database):
-    connection = mysql.connector.connect(
-        host='localhost',
-        user='legion',
-        password='{password}',
-        database=database
-    )
-    
-    cursor = connection.cursor()
-    
-    # Get all tables
-    cursor.execute("SHOW TABLES")
-    tables = [row[0] for row in cursor.fetchall()]
-    
-    for table in tables:
-        # Fix table collation
-        cursor.execute(f"ALTER TABLE `{table}` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci")
-    
-    connection.commit()
-    cursor.close()
-    connection.close()
-
-fix_collation('legiondb')
-fix_collation('legiondb0')
-            """.format(password=self.legion_password)
+            # Use the collation fix script
+            script_dir = Path(__file__).parent.parent / 'scripts'
+            script_path = script_dir / 'fix_collation.py'
             
-            # Write and execute the script
-            script_file = self.temp_dir / 'fix_collation.py'
-            with open(script_file, 'w') as f:
-                f.write(collation_script)
+            # If script doesn't exist, use inline version
+            if not script_path.exists():
+                self.logger.info("Using inline collation fix")
+                return self._fix_collation_inline()
             
-            result = subprocess.run([
-                sys.executable, str(script_file)
-            ], capture_output=True, text=True, timeout=300)
+            # Run the script for each database
+            for database in ['legiondb', 'legiondb0']:
+                self.logger.info(f"Fixing collation for {database}...")
+                
+                # Create a temp script with filled-in values
+                temp_script = self.temp_dir / f'fix_collation_{database}.py'
+                
+                # Read the template script
+                with open(script_path, 'r') as f:
+                    script_content = f.read()
+                
+                # Replace placeholders
+                script_content = script_content.replace('your_host', 'localhost')
+                script_content = script_content.replace('your_user', 'legion')
+                script_content = script_content.replace('your_password', self.legion_password)
+                script_content = script_content.replace('your_database_name', database)
+                
+                # Write the customized script
+                with open(temp_script, 'w') as f:
+                    f.write(script_content)
+                
+                # Execute the script
+                result = subprocess.run([
+                    sys.executable, str(temp_script)
+                ], capture_output=True, text=True, timeout=300)
+                
+                if result.returncode != 0:
+                    self.logger.warning(f"Collation fix for {database} had issues: {result.stderr}")
+                else:
+                    self.logger.info(f"✅ Collation fixed for {database}")
             
-            if result.returncode != 0:
-                return False, f"Collation fix failed: {result.stderr}"
+            return True, "Collation mismatches fixed for both databases"
             
-            return True, "Collation mismatches fixed"
+        except Exception as e:
+            self.logger.warning(f"Collation fix warning: {str(e)}")
+            # Non-critical error - continue anyway
+            return True, "Collation fix completed with warnings"
+    
+    def _fix_collation_inline(self) -> Tuple[bool, str]:
+        """Inline version of collation fix if script is not available."""
+        try:
+            connection = self._get_mysql_connection('legion', self.legion_password)
+            if not connection:
+                return False, "Could not connect to fix collations"
+            
+            cursor = connection.cursor()
+            
+            for database in ['legiondb', 'legiondb0']:
+                cursor.execute(f"USE {database}")
+                cursor.execute("SHOW TABLES")
+                tables = [row[0] for row in cursor.fetchall()]
+                
+                for table in tables:
+                    try:
+                        cursor.execute(f"ALTER TABLE `{table}` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci")
+                        connection.commit()
+                    except Exception as e:
+                        self.logger.warning(f"Could not fix collation for {database}.{table}: {e}")
+            
+            cursor.close()
+            connection.close()
+            return True, "Collation mismatches fixed (inline method)"
             
         except Exception as e:
             return False, f"Collation fix error: {str(e)}"

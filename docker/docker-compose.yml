@@ -1,0 +1,165 @@
+services:
+  # Caddy reverse proxy with automatic HTTPS
+  caddy:
+    image: caddy:latest
+    container_name: legion-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - legion-network
+    depends_on:
+      - mysql
+      - elasticsearch
+      - redis-master
+    restart: unless-stopped
+
+  # MySQL with Legion databases (pre-built with data)
+  mysql:
+    image: legion-mysql:latest
+    pull_policy: never  # Use local image, don't try to pull
+    container_name: legion-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql123
+      MYSQL_DATABASE: legiondb
+      MYSQL_USER: legion
+      MYSQL_PASSWORD: legionwork
+    volumes:
+      # Persist data between container restarts
+      - mysql-data:/var/lib/mysql
+      # MySQL data pre-loaded in container - no init scripts needed
+    networks:
+      - legion-network
+    healthcheck:
+      test: ["CMD", "mysql", "-uroot", "-pmysql123", "-e", "SELECT 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # Elasticsearch for search
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.0.0
+    container_name: legion-elasticsearch
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    networks:
+      - legion-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # Redis master for distributed locking
+  redis-master:
+    image: redis:latest
+    container_name: legion-redis-master
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-master-data:/data
+    networks:
+      - legion-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # Redis slave
+  redis-slave:
+    image: redis:latest
+    container_name: legion-redis-slave
+    ports:
+      - "6380:6379"
+    command: ["redis-server", "--replicaof", "redis-master", "6379"]
+    depends_on:
+      - redis-master
+    volumes:
+      - redis-slave-data:/data
+    networks:
+      - legion-network
+    restart: unless-stopped
+
+  # LocalStack for AWS services emulation
+  localstack:
+    image: localstack/localstack:latest
+    container_name: legion-localstack
+    ports:
+      - "4566:4566"
+      - "4510-4559:4510-4559"  # External service ports
+    environment:
+      - SERVICES=s3,sqs,sns,dynamodb,lambda,cloudwatch,sts,iam,secretsmanager
+      - DEBUG=0
+      - DATA_DIR=/tmp/localstack/data
+      - LAMBDA_EXECUTOR=local
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - HOSTNAME_EXTERNAL=localstack
+    volumes:
+      - localstack-data:/tmp/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - legion-network
+    restart: unless-stopped
+
+  # MailHog for email testing (catches all SMTP traffic)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: legion-mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - legion-network
+    restart: unless-stopped
+
+  # Jaeger for distributed tracing (optional)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: legion-jaeger
+    ports:
+      - "6831:6831/udp"  # Thrift compact
+      - "6832:6832/udp"  # Thrift binary
+      - "5778:5778"      # Config HTTP
+      - "16686:16686"    # Web UI
+      - "14268:14268"    # HTTP collector
+      - "14250:14250"    # gRPC
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    networks:
+      - legion-network
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
+  mysql-data:
+  es-data:
+  redis-master-data:
+  redis-slave-data:
+  localstack-data:
+
+networks:
+  legion-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

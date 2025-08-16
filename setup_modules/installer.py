@@ -307,10 +307,12 @@ class SoftwareInstaller:
                 node_install_cmd = 'nvm install node'  # Installs latest
                 node_use_cmd = 'nvm use node'
                 node_alias_cmd = 'nvm alias default node'
+                version_display = 'latest'
             else:
                 node_install_cmd = f'nvm install {node_version}'
                 node_use_cmd = f'nvm use {node_version}'
                 node_alias_cmd = f'nvm alias default {node_version}'
+                version_display = f'v{node_version}'
             
             # Install Node.js, Yarn, and Lerna
             nvm_script = f"""
@@ -329,7 +331,7 @@ npm install -g lerna@{lerna_version}
             )
             
             if result.returncode == 0:
-                return True, f"Node.js (latest), Yarn, and Lerna {lerna_version} installed"
+                return True, f"Node.js {version_display}, Yarn, and Lerna {lerna_version} installed"
             else:
                 return False, f"Node.js installation failed: {result.stderr}"
                 
