@@ -34,6 +34,8 @@ services:
     volumes:
       # Persist data between container restarts
       - mysql-data:/var/lib/mysql
+      # MySQL configuration
+      - ./mysql/my.cnf:/etc/mysql/conf.d/legion.cnf:ro
       # MySQL data pre-loaded in container - no init scripts needed
     networks:
       - legion-network
@@ -109,12 +111,13 @@ services:
     environment:
       - SERVICES=s3,sqs,sns,dynamodb,lambda,cloudwatch,sts,iam,secretsmanager
       - DEBUG=0
-      - DATA_DIR=/tmp/localstack/data
       - LAMBDA_EXECUTOR=local
       - DOCKER_HOST=unix:///var/run/docker.sock
       - HOSTNAME_EXTERNAL=localstack
+      - PERSISTENCE=1
+      - LOCALSTACK_VOLUME_DIR=/var/lib/localstack
     volumes:
-      - localstack-data:/tmp/localstack
+      - localstack-data:/var/lib/localstack
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - legion-network

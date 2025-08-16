@@ -110,19 +110,7 @@ https://health.legion.local {
     respond /health "OK" 200
     
     handle /services {
-        respond <<JSON
-        {
-            "mysql": "localhost:3306",
-            "elasticsearch": "localhost:9200",
-            "redis-master": "localhost:6379",
-            "redis-slave": "localhost:6380",
-            "localstack": "localhost:4566",
-            "mailhog-smtp": "localhost:1025",
-            "mailhog-ui": "https://mail.legion.local",
-            "jaeger": "https://tracing.legion.local"
-        }
-        JSON 200 {
-            Content-Type "application/json"
-        }
+        header Content-Type "application/json"
+        respond `{"mysql":"localhost:3306","elasticsearch":"localhost:9200","redis-master":"localhost:6379","redis-slave":"localhost:6380","localstack":"localhost:4566","mailhog-smtp":"localhost:1025","mailhog-ui":"https://mail.legion.local","jaeger":"https://tracing.legion.local"}` 200
     }
 }

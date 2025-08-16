@@ -54,6 +54,10 @@ yarn-error.log
 
 # Docker
 docker-compose.override.yml
+docker/mysql/build-tmp-*/
+docker/certs/*.crt
+docker/certs/*.key
+docker/docker-compose.yml.bak
 
 # Test files
 *.test
