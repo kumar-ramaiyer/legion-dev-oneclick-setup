@@ -69,6 +69,16 @@ def create_simple_config():
         print("   💡 Suggestion: Legion WFM is awesome")
         ssh_passphrase = input("   > ").strip()
     
+    print("\n5️⃣  Database dumps folder (download from Google Drive):")
+    print("   📥 Download these files from: https://drive.google.com/drive/folders/1WhTR6fP9KkFO4m7mxLSGu-Ksf4erQ6RK")
+    print("   - storedprocedures.sql")
+    print("   - legiondb.sql.zip")
+    print("   - legiondb0.sql.zip")
+    print("   💡 Default: ~/work/dbdumps")
+    dbdumps_folder = input("   Database dumps folder [~/work/dbdumps]: ").strip()
+    if not dbdumps_folder:
+        dbdumps_folder = "~/work/dbdumps"
+    
     # If not using defaults, ask additional questions
     workspace_root = '~/Development/legion'
     code_directory = 'code'
@@ -136,7 +146,8 @@ def create_simple_config():
         'database': {
             'mysql_root_password': mysql_password,
             'legion_db_password': 'legionwork',
-            'elasticsearch_index_modifier': es_modifier
+            'elasticsearch_index_modifier': es_modifier,
+            'dbdumps_folder': dbdumps_folder
         },
         'git': {
             'generate_ssh_key': True,

@@ -1560,13 +1560,134 @@ Backups will be created in: {self.backup_dir}
         start_time = time.time()
         self.logger.info("Setting up databases...")
         
-        # This would include MySQL setup, user creation, data import
-        return SetupResult(
-            success=True,
-            message="Database setup completed",
-            stage=SetupStage.DATABASE_SETUP,
-            duration=time.time() - start_time
-        )
+        try:
+            # Initialize database setup
+            db_setup = DatabaseSetup(self.config, self.logger)
+            
+            # Setup MySQL service (starts it if needed)
+            self.logger.info("Setting up MySQL service...")
+            success, message = db_setup.setup_mysql_service()
+            if not success:
+                self.logger.error(f"❌ CRITICAL: MySQL service setup failed: {message}")
+                return SetupResult(
+                    success=False,
+                    message=f"MySQL service setup failed: {message}",
+                    stage=SetupStage.DATABASE_SETUP,
+                    duration=time.time() - start_time
+                )
+            else:
+                self.logger.info(f"MySQL service: {message}")
+            
+            # Verify MySQL root password and set if needed
+            desired_root_password = self.config.get('database', {}).get('mysql_root_password', 'mysql123')
+            if desired_root_password:
+                self.logger.info("Verifying MySQL root password...")
+                import mysql.connector
+                
+                # First try with no password
+                can_connect_no_password = False
+                can_connect_with_password = False
+                
+                try:
+                    conn = mysql.connector.connect(host='localhost', user='root', password='')
+                    conn.close()
+                    can_connect_no_password = True
+                    self.logger.info("MySQL root has no password set")
+                except mysql.connector.Error:
+                    pass
+                
+                # Try with configured password
+                try:
+                    conn = mysql.connector.connect(host='localhost', user='root', password=desired_root_password)
+                    conn.close()
+                    can_connect_with_password = True
+                    self.logger.info("MySQL root password is correctly configured")
+                    db_setup.root_password = desired_root_password
+                except mysql.connector.Error as e:
+                    if "Access denied" in str(e):
+                        self.logger.error(f"❌ CRITICAL: MySQL root password mismatch!")
+                        self.logger.error(f"   Expected password: '{desired_root_password}' (from config)")
+                        self.logger.error(f"   But MySQL is rejecting this password")
+                        
+                        if can_connect_no_password:
+                            # We can connect without password, so set it
+                            try:
+                                self.logger.info("Setting MySQL root password to configured value...")
+                                conn = mysql.connector.connect(host='localhost', user='root', password='')
+                                cursor = conn.cursor()
+                                cursor.execute(f"ALTER USER 'root'@'localhost' IDENTIFIED BY '{desired_root_password}';")
+                                cursor.execute("FLUSH PRIVILEGES;")
+                                conn.commit()
+                                cursor.close()
+                                conn.close()
+                                self.logger.info("✅ MySQL root password set successfully")
+                                db_setup.root_password = desired_root_password
+                            except Exception as set_error:
+                                self.logger.error(f"Failed to set MySQL root password: {set_error}")
+                                return SetupResult(
+                                    success=False,
+                                    message="Cannot set MySQL root password. Please manually set it or update config.",
+                                    stage=SetupStage.DATABASE_SETUP,
+                                    duration=time.time() - start_time
+                                )
+                        else:
+                            # Can't connect with either password
+                            self.logger.error("Cannot connect to MySQL with configured password.")
+                            self.logger.error("Please either:")
+                            self.logger.error("  1. Update setup_config.yaml with correct MySQL root password")
+                            self.logger.error("  2. Or reset MySQL root password to match config")
+                            return SetupResult(
+                                success=False,
+                                message="MySQL root password mismatch - cannot proceed",
+                                stage=SetupStage.DATABASE_SETUP,
+                                duration=time.time() - start_time
+                            )
+            
+            # Create databases and users
+            self.logger.info("Creating databases and users...")
+            success, message = db_setup.create_databases_and_users()
+            if success:
+                self.logger.info(f"✅ Databases and users created: {message}")
+                
+                # Import data - this is CRITICAL for the setup to work
+                self.logger.info("Importing database data...")
+                import_success, import_message = db_setup.import_data()
+                
+                if not import_success:
+                    # Database import failed - this is critical
+                    self.logger.error(f"❌ Database import failed: {import_message}")
+                    return SetupResult(
+                        success=False,
+                        message=f"Database import failed: {import_message}",
+                        stage=SetupStage.DATABASE_SETUP,
+                        duration=time.time() - start_time
+                    )
+                else:
+                    self.logger.info(f"✅ Database data imported successfully: {import_message}")
+                
+                return SetupResult(
+                    success=True,
+                    message="Database setup completed successfully",
+                    stage=SetupStage.DATABASE_SETUP,
+                    duration=time.time() - start_time
+                )
+            else:
+                self.logger.error(f"Failed to create databases and users: {message}")
+                return SetupResult(
+                    success=False,
+                    message="Database setup failed - check MySQL connectivity",
+                    stage=SetupStage.DATABASE_SETUP,
+                    duration=time.time() - start_time
+                )
+                
+        except Exception as e:
+            self.logger.error(f"Database setup error: {str(e)}")
+            return SetupResult(
+                success=False,
+                message=f"Database setup failed: {str(e)}",
+                stage=SetupStage.DATABASE_SETUP,
+                duration=time.time() - start_time
+            )
 
     def _build_application(self) -> SetupResult:
         """Build the Legion application."""
@@ -1601,6 +1722,48 @@ Backups will be created in: {self.backup_dir}
             self.logger.info("Building enterprise backend...")
             print("\n📦 Building enterprise backend (this may take 10-15 minutes)...")
             
+            # Detect and set JAVA_HOME for Java 17
+            java_home = None
+            if platform.system() == 'Darwin':  # macOS
+                try:
+                    # Use java_home tool to find Java 17
+                    java_home_result = subprocess.run(
+                        ['/usr/libexec/java_home', '-v', '17'],
+                        capture_output=True,
+                        text=True
+                    )
+                    if java_home_result.returncode == 0:
+                        java_home = java_home_result.stdout.strip()
+                        self.logger.info(f"Found Java 17 at: {java_home}")
+                except Exception as e:
+                    self.logger.warning(f"Could not detect Java 17 home: {e}")
+            else:  # Linux
+                # Check common Java 17 locations on Linux
+                possible_java_homes = [
+                    '/usr/lib/jvm/java-17-amazon-corretto',
+                    '/usr/lib/jvm/java-17-openjdk',
+                    '/usr/lib/jvm/java-17-openjdk-amd64',
+                    '/usr/lib/jvm/java-17-openjdk-arm64',
+                    '/usr/lib/jvm/corretto-17',
+                    '/usr/lib/jvm/java-17'
+                ]
+                for path in possible_java_homes:
+                    if os.path.exists(path) and os.path.isdir(path):
+                        java_home = path
+                        self.logger.info(f"Found Java 17 at: {java_home}")
+                        break
+            
+            # Set up environment for Maven build
+            build_env = os.environ.copy()
+            if java_home:
+                build_env['JAVA_HOME'] = java_home
+                # Also update PATH to use Java 17's bin directory first
+                java_bin = os.path.join(java_home, 'bin')
+                build_env['PATH'] = f"{java_bin}:{build_env.get('PATH', '')}"
+                self.logger.info(f"Set JAVA_HOME={java_home} for Maven build")
+            else:
+                self.logger.warning("JAVA_HOME not set - Maven will use system default Java (may cause issues if not Java 17)")
+            
             # Build command as per README
             build_command = [
                 'mvn', 'clean', 'install',
@@ -1616,12 +1779,21 @@ Backups will be created in: {self.backup_dir}
                     cwd=str(enterprise_path),
                     capture_output=True,
                     text=True,
-                    timeout=1200  # 20 minute timeout
+                    timeout=1200,  # 20 minute timeout
+                    env=build_env  # Use the environment with JAVA_HOME set
                 )
                 
                 if result.returncode == 0:
                     self.logger.info("✅ Enterprise backend build successful")
                     steps.append("Enterprise backend: Build successful")
+                    
+                    # Log any warnings from stderr
+                    if result.stderr and result.stderr.strip():
+                        # Check if it's just the Unsafe warning which we can ignore
+                        if "sun.misc.Unsafe" in result.stderr:
+                            self.logger.info("Note: Build succeeded with Guice/Maven warnings (these can be ignored)")
+                        else:
+                            self.logger.warning(f"Build warnings: {result.stderr[:500]}")
                     
                     # Install GLPK library on macOS after build
                     if platform.system() == 'Darwin':
@@ -1637,15 +1809,66 @@ Backups will be created in: {self.backup_dir}
                         except Exception as e:
                             self.logger.warning(f"GLPK library installation failed: {str(e)}")
                 else:
-                    self.logger.error(f"Enterprise backend build failed: {result.stderr[-1000:]}")
+                    # Build actually failed (non-zero return code)
+                    self.logger.error(f"Enterprise backend build failed with exit code {result.returncode}")
+                    
+                    # Extract and display the actual compilation/build errors
+                    if result.stdout:
+                        # Find compilation errors or other meaningful errors
+                        lines = result.stdout.split('\n')
+                        error_section = []
+                        capture = False
+                        
+                        for i, line in enumerate(lines):
+                            # Start capturing when we see [ERROR] COMPILATION ERROR or similar
+                            if '[ERROR] COMPILATION ERROR' in line or '[ERROR] Failed to execute goal' in line:
+                                capture = True
+                                error_section = [line]
+                            elif capture:
+                                error_section.append(line)
+                                # Stop at the help articles section
+                                if '[ERROR] For more information about the errors' in line:
+                                    break
+                        
+                        if error_section:
+                            self.logger.error("Maven build errors:")
+                            print("\n" + "="*60)
+                            print("MAVEN BUILD ERRORS:")
+                            print("="*60)
+                            for line in error_section[:50]:  # Show up to 50 lines of errors
+                                if line.strip():
+                                    print(line)
+                                    self.logger.error(line)
+                            print("="*60 + "\n")
+                        else:
+                            # If no compilation errors, look for any [ERROR] lines
+                            error_lines = [line for line in lines if '[ERROR]' in line and 'For more information' not in line]
+                            if error_lines:
+                                self.logger.error("Maven errors found:")
+                                print("\n" + "="*60)
+                                print("MAVEN ERRORS:")
+                                print("="*60)
+                                for line in error_lines[:30]:  # Show up to 30 error lines
+                                    print(line)
+                                    self.logger.error(line)
+                                print("="*60 + "\n")
+                    
+                    if result.stderr and result.stderr.strip() and "sun.misc.Unsafe" not in result.stderr:
+                        self.logger.error(f"Error output: {result.stderr[:1000]}")
+                    
                     steps.append("Enterprise backend: Build failed")
                     overall_success = False
                     
-                    # Try to provide helpful error message
-                    if 'settings.xml' in result.stderr.lower():
-                        self.logger.error("Build failed due to Maven settings issue. Please ensure settings.xml is properly configured.")
-                    elif 'dependency' in result.stderr.lower():
-                        self.logger.error("Build failed due to dependency issue. Check JFrog connectivity.")
+                    # Try to provide helpful error message based on error content
+                    error_content = (result.stdout or '') + (result.stderr or '')
+                    if 'settings.xml' in error_content:
+                        self.logger.error("💡 Build failed due to Maven settings issue. Please ensure settings.xml is properly configured.")
+                    elif 'dependency' in error_content.lower() or 'could not resolve' in error_content.lower():
+                        self.logger.error("💡 Build failed due to dependency issue. Check JFrog connectivity and settings.xml.")
+                    elif 'Access denied for user' in error_content:
+                        self.logger.error("💡 Build failed due to database connection issue. Check MySQL is running and credentials are correct.")
+                    elif 'cannot find symbol' in error_content:
+                        self.logger.error("💡 Build failed due to compilation errors. This might be a Java version or Lombok issue.")
             
             except subprocess.TimeoutExpired:
                 self.logger.error("Enterprise backend build timed out after 20 minutes")
