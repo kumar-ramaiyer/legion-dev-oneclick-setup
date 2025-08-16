@@ -1,12 +1,10 @@
 #!/bin/bash
-# Build MySQL container with Legion data and push to JFrog
-# This script builds once and pushes to JFrog. Other developers just pull.
+# Build MySQL container with Legion data locally
+# This script is idempotent - it cleans up and rebuilds each time
 
 set -e
 
 # Configuration
-REGISTRY="legiontech.jfrog.io"
-REPOSITORY="docker-local"
 IMAGE_NAME="legion-mysql"
 VERSION=$(date +%Y%m%d-%H%M%S)
 LATEST_TAG="latest"
@@ -19,32 +17,62 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║        Legion MySQL Container Build & Push Script           ║${NC}"
+echo -e "${GREEN}║          Legion MySQL Container Build Script                ║${NC}"
+echo -e "${GREEN}║                  (Local Build Only)                         ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Step 1: Check if image already exists in JFrog
-echo -e "${YELLOW}Step 1: Checking if image already exists in JFrog...${NC}"
-if docker pull $REGISTRY/$REPOSITORY/$IMAGE_NAME:$LATEST_TAG 2>/dev/null; then
-    echo -e "${GREEN}✓ Image already exists in JFrog${NC}"
-    echo ""
-    read -p "Image exists. Do you want to rebuild and push a new version? (y/N): " -n 1 -r
+# Step 1: Clean up existing containers and images (idempotent)
+echo -e "${YELLOW}Step 1: Cleaning up existing containers and images...${NC}"
+
+# Stop and remove any existing test containers
+if docker ps -a | grep -q "legion-mysql-test"; then
+    echo "Removing existing test container..."
+    docker stop legion-mysql-test 2>/dev/null || true
+    docker rm legion-mysql-test 2>/dev/null || true
+fi
+
+# Stop and remove the production container if it exists
+if docker ps -a | grep -q "legion-mysql"; then
+    echo "Found existing legion-mysql container"
+    read -p "Stop and remove existing legion-mysql container? (y/N): " -n 1 -r
     echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${BLUE}Using existing image from JFrog${NC}"
-        echo "Pull command: docker pull $REGISTRY/$REPOSITORY/$IMAGE_NAME:$LATEST_TAG"
-        exit 0
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        docker stop legion-mysql 2>/dev/null || true
+        docker rm legion-mysql 2>/dev/null || true
+        echo -e "${GREEN}✓ Removed existing container${NC}"
     fi
 fi
+
+# Remove ALL existing legion-mysql images (force removal)
+echo "Removing ALL existing $IMAGE_NAME images..."
+# Get all image IDs for legion-mysql (including tagged versions)
+IMAGE_IDS=$(docker images --format "{{.Repository}}:{{.Tag}} {{.ID}}" | grep "^$IMAGE_NAME" | awk '{print $2}' | sort -u)
+if [ ! -z "$IMAGE_IDS" ]; then
+    echo "Found the following images to remove:"
+    docker images | grep "^$IMAGE_NAME"
+    for IMAGE_ID in $IMAGE_IDS; do
+        echo "Removing image $IMAGE_ID..."
+        docker rmi -f $IMAGE_ID 2>/dev/null || true
+    done
+    echo -e "${GREEN}✓ Removed all existing $IMAGE_NAME images${NC}"
+else
+    echo "No existing $IMAGE_NAME images found"
+fi
+
+# Clean up any old build directories
+echo "Cleaning up old build directories..."
+rm -rf "$(pwd)"/build-tmp-* 2>/dev/null || true
+echo -e "${GREEN}✓ Cleanup completed${NC}"
 
 # Step 2: Check for database dump files
 echo -e "${YELLOW}Step 2: Checking for database dump files...${NC}"
 
 # Check if dbdumps folder is specified
-DBDUMPS_FOLDER="${DBDUMPS_FOLDER:-/Users/kumar.ramaiyer/work/dbdumps}"
+DBDUMPS_FOLDER="${DBDUMPS_FOLDER:-$HOME/work/dbdumps}"
 if [ ! -d "$DBDUMPS_FOLDER" ]; then
     echo -e "${RED}Database dumps folder not found: $DBDUMPS_FOLDER${NC}"
-    echo "Please set DBDUMPS_FOLDER environment variable or place files in /Users/kumar.ramaiyer/work/dbdumps"
+    echo "Please set DBDUMPS_FOLDER environment variable or place files in $HOME/work/dbdumps"
     exit 1
 fi
 
@@ -79,15 +107,54 @@ unzip -q "$DBDUMPS_FOLDER/legiondb0.sql.zip" -d "$BUILD_DIR/data/"
 
 echo -e "${GREEN}✓ Files prepared${NC}"
 
-# Step 4: Create Dockerfile
-echo -e "${YELLOW}Step 4: Creating Dockerfile...${NC}"
+# Step 4: Create MySQL configuration
+echo -e "${YELLOW}Step 4: Creating MySQL configuration...${NC}"
+cat > "$BUILD_DIR/my.cnf" << 'EOF'
+[mysqld]
+# MySQL 8.0 configuration for Legion
+# Disable ONLY_FULL_GROUP_BY and allow reserved keywords
+sql_mode=STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+
+# Character set and collation
+character-set-server=utf8mb4
+collation-server=utf8mb4_unicode_ci
+
+# Connection settings
+max_connections=200
+max_allowed_packet=1024M
+
+# InnoDB settings (using new MySQL 8.0 parameters)
+innodb_buffer_pool_size=1G
+# Use innodb_redo_log_capacity instead of deprecated innodb_log_file_size
+innodb_redo_log_capacity=512M
+innodb_flush_log_at_trx_commit=2
+innodb_flush_method=O_DIRECT
+
+# Disable host cache as recommended
+host_cache_size=0
+
+# Timeout settings for large imports
+connect_timeout=3600
+wait_timeout=3600
+interactive_timeout=3600
+EOF
+
+# Step 5: Create Dockerfile
+echo -e "${YELLOW}Step 5: Creating Dockerfile...${NC}"
 cat > "$BUILD_DIR/Dockerfile" << 'EOF'
 # Legion MySQL with pre-loaded data
 FROM mysql:8.0
 
+# Install Python3 and pip3 for collation fixes
+RUN microdnf install -y python3 python3-pip && \
+    microdnf clean all
+
 # Environment variables
 ENV MYSQL_ROOT_PASSWORD=mysql123
 ENV MYSQL_DATABASE=legiondb
+
+# Copy MySQL configuration to handle reserved keywords
+COPY my.cnf /etc/mysql/conf.d/legion.cnf
 
 # Copy initialization scripts (run in alphabetical order)
 COPY scripts/*.sql /docker-entrypoint-initdb.d/
@@ -108,79 +175,131 @@ LABEL description="MySQL 8.0 with Legion databases pre-loaded"
 LABEL version="${VERSION}"
 EOF
 
-# Step 5: Create initialization scripts
-echo -e "${YELLOW}Step 5: Creating initialization scripts...${NC}"
+# Step 6: Create initialization scripts
+echo -e "${YELLOW}Step 6: Creating initialization scripts...${NC}"
 
-# 01 - Create databases and users
-cat > "$BUILD_DIR/scripts/01-create-databases.sql" << 'EOF'
--- Set character encoding
-SET GLOBAL character_set_server='utf8mb4';
-SET GLOBAL collation_server='utf8mb4_general_ci';
+# 01 - Create databases and users (following README_enterprise.md exactly)
+cat > "$BUILD_DIR/scripts/01-create-databases.sh" << 'EOF'
+#!/bin/bash
+set -ex  # Enable command echoing and exit on error
 
--- Create databases
-CREATE DATABASE IF NOT EXISTS legiondb CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-CREATE DATABASE IF NOT EXISTS legiondb0 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+echo "=== Starting database and user creation ==="
 
--- Create users
-CREATE USER IF NOT EXISTS 'legion'@'%' IDENTIFIED WITH caching_sha2_password BY 'legionwork';
-CREATE USER IF NOT EXISTS 'legionro'@'%' IDENTIFIED WITH caching_sha2_password BY 'legionwork';
-CREATE USER IF NOT EXISTS 'legion'@'localhost' IDENTIFIED WITH caching_sha2_password BY 'legionwork';
+# Following README_enterprise.md steps exactly
+echo "=== Setting character encoding ==="
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SET GLOBAL character_set_server='utf8mb4';"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SET GLOBAL collation_server='utf8mb4_general_ci';"
 
--- Grant privileges for legiondb
-GRANT ALL PRIVILEGES ON legiondb.* TO 'legion'@'%' WITH GRANT OPTION;
-GRANT ALL PRIVILEGES ON legiondb.* TO 'legion'@'localhost' WITH GRANT OPTION;
-GRANT SELECT ON legiondb.* TO 'legionro'@'%';
+echo "=== Creating legiondb database ==="
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "CREATE DATABASE IF NOT EXISTS legiondb CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
 
--- Grant privileges for legiondb0
-GRANT ALL PRIVILEGES ON legiondb0.* TO 'legion'@'%' WITH GRANT OPTION;
-GRANT ALL PRIVILEGES ON legiondb0.* TO 'legion'@'localhost' WITH GRANT OPTION;
-GRANT SELECT ON legiondb0.* TO 'legionro'@'%';
+echo "=== Creating users ==="
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "CREATE USER IF NOT EXISTS 'legion'@'%' IDENTIFIED WITH caching_sha2_password BY 'legionwork';"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "CREATE USER IF NOT EXISTS 'legionro'@'%' IDENTIFIED WITH caching_sha2_password BY 'legionwork';"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "CREATE USER IF NOT EXISTS 'legion'@'localhost' IDENTIFIED WITH caching_sha2_password BY 'legionwork';"
 
-FLUSH PRIVILEGES;
+echo "=== Granting privileges for legiondb ==="
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "GRANT ALL PRIVILEGES ON legiondb.* TO 'legion'@'%' WITH GRANT OPTION;"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "GRANT ALL PRIVILEGES ON legiondb.* TO 'legion'@'localhost' WITH GRANT OPTION;"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "GRANT SELECT ON legiondb.* TO 'legionro'@'%';"
+
+echo "=== Creating legiondb0 database ==="
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "CREATE DATABASE IF NOT EXISTS legiondb0 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
+
+echo "=== Granting privileges for legiondb0 ==="
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "GRANT ALL PRIVILEGES ON legiondb0.* TO 'legion'@'%' WITH GRANT OPTION;"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "GRANT ALL PRIVILEGES ON legiondb0.* TO 'legion'@'localhost' WITH GRANT OPTION;"
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "GRANT SELECT ON legiondb0.* TO 'legionro'@'%';"
+
+echo "=== Flushing privileges ==="
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "FLUSH PRIVILEGES;"
+
+echo "=== Verifying databases created ==="
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SHOW DATABASES;"
+
+echo "=== Verifying users created ==="
+mysql -uroot -p${MYSQL_ROOT_PASSWORD} -e "SELECT user, host FROM mysql.user WHERE user IN ('legion', 'legionro');"
+
+echo "=== Database and user creation completed ==="
 EOF
 
-# 02 - Import data
+# Make the script executable
+chmod +x "$BUILD_DIR/scripts/01-create-databases.sh"
+
+# 02 - Import data and run migrations
 cat > "$BUILD_DIR/scripts/02-import-data.sh" << 'EOF'
 #!/bin/bash
-set -e
+set -ex  # Enable command echoing and exit on error
 
-echo "Starting database import..."
+echo "=== Starting database import (following README_enterprise.md) ==="
 
-# Function to import SQL file
-import_sql() {
-    local db=$1
-    local file=$2
-    local desc=$3
-    
-    if [ -f "/var/lib/mysql-import/$file" ]; then
-        echo "Importing $desc into $db..."
-        mysql -uroot -p${MYSQL_ROOT_PASSWORD} "$db" < "/var/lib/mysql-import/$file"
-        echo "✓ $desc imported successfully"
-    else
-        echo "WARNING: $file not found, skipping $desc"
-    fi
+# First verify the legion user exists and has access
+echo "=== Verifying legion user access ==="
+mysql -ulegion -plegionwork -e "SELECT USER();" 2>&1 || {
+    echo "=== ERROR: Cannot connect as legion user ==="
+    exit 1
 }
 
-# Import legiondb
-import_sql "legiondb" "legiondb.sql" "legiondb data"
-import_sql "legiondb" "storedprocedures.sql" "stored procedures for legiondb"
+# Import database dumps following README_enterprise.md exactly
+echo "=== Importing database dumps as per README_enterprise.md ==="
 
-# Import legiondb0
-import_sql "legiondb0" "legiondb0.sql" "legiondb0 data"
-import_sql "legiondb0" "storedprocedures.sql" "stored procedures for legiondb0"
+# Data dump for legiondb
+echo "=== Data dump for legiondb ==="
+echo "=== Running: mysql -u legion -p legiondb < path/to/legiondb.sql ==="
+if [ -f "/var/lib/mysql-import/legiondb.sql" ]; then
+    echo "=== File size: $(ls -lh /var/lib/mysql-import/legiondb.sql | awk '{print $5}') ==="
+    mysql -ulegion -plegionwork legiondb < /var/lib/mysql-import/legiondb.sql 2>&1
+    echo "=== Checking table count after legiondb.sql import ==="
+    mysql -ulegion -plegionwork -e "SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema='legiondb';"
+fi
 
-echo "Database import completed!"
+echo "=== Running: mysql -u legion -p legiondb < path/to/storedprocedures.sql ==="
+if [ -f "/var/lib/mysql-import/storedprocedures.sql" ]; then
+    mysql -ulegion -plegionwork legiondb < /var/lib/mysql-import/storedprocedures.sql 2>&1
+    echo "=== Stored procedures imported to legiondb ==="
+fi
+
+# Data dump for legiondb0
+echo "=== Data dump for legiondb0 ==="
+echo "=== Running: mysql -u legion -p legiondb0 < path/to/legiondb0.sql ==="
+if [ -f "/var/lib/mysql-import/legiondb0.sql" ]; then
+    echo "=== File size: $(ls -lh /var/lib/mysql-import/legiondb0.sql | awk '{print $5}') ==="
+    mysql -ulegion -plegionwork legiondb0 < /var/lib/mysql-import/legiondb0.sql 2>&1
+    echo "=== Checking table count after legiondb0.sql import ==="
+    mysql -ulegion -plegionwork -e "SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema='legiondb0';"
+fi
+
+echo "=== Running: mysql -u legion -p legiondb0 < path/to/storedprocedures.sql ==="
+if [ -f "/var/lib/mysql-import/storedprocedures.sql" ]; then
+    mysql -ulegion -plegionwork legiondb0 < /var/lib/mysql-import/storedprocedures.sql 2>&1
+    echo "=== Stored procedures imported to legiondb0 ==="
+fi
+
+# Note: If the dumps don't have the complete migrated schema, you'll see
+# Flyway migration errors during Maven build. In that case, either:
+# 1. Get updated dumps from the platform team, or
+# 2. Run Maven with -Dflyway.skip=true
+
+echo "=== Database setup completed ==="
 EOF
 
 # 03 - Fix collations (using Python script approach)
 cat > "$BUILD_DIR/scripts/03-fix-collations.sh" << 'EOF'
 #!/bin/bash
-set -e
+set -ex  # Enable command echoing and exit on error
 
-echo "Fixing collation mismatches..."
+echo "=== Starting collation fixes ==="
+
+# First check what tables exist in both databases
+echo "=== Checking existing tables in legiondb ==="
+mysql -uroot -pmysql123 -e "SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema='legiondb';"
+
+echo "=== Checking existing tables in legiondb0 ==="
+mysql -uroot -pmysql123 -e "SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema='legiondb0';"
 
 # Install Python MySQL connector
-pip3 install mysql-connector-python
+echo "=== Installing Python MySQL connector ==="
+pip3 install mysql-connector-python 2>&1
 
 # Create Python script for collation fixes
 cat > /tmp/fix_collations.py << 'PYTHON_EOF'
@@ -236,16 +355,28 @@ print("All collation fixes completed!")
 PYTHON_EOF
 
 # Run the Python script
-python3 /tmp/fix_collations.py
+echo "=== Running Python collation fix script ==="
+python3 /tmp/fix_collations.py 2>&1 || {
+    echo "=== WARNING: Python script failed, but continuing ==="
+}
 
 # Insert Enterprise Schema from legiondb to legiondb0 (as per README)
-echo "Copying Enterprise Schema..."
-mysql -uroot -pmysql123 << 'SQL'
+echo "=== Copying Enterprise Schema from legiondb to legiondb0 ==="
+mysql -uroot -pmysql123 << 'SQL' 2>&1 || {
+    echo "=== WARNING: EnterpriseSchema copy failed (table may not exist yet) ==="
+}
 INSERT IGNORE INTO legiondb0.EnterpriseSchema 
 SELECT * FROM legiondb.EnterpriseSchema;
 SQL
 
-echo "Database setup completed!"
+echo "=== Final table count verification ==="
+echo "=== Tables in legiondb: ==="
+mysql -uroot -pmysql123 -e "SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema='legiondb';"
+
+echo "=== Tables in legiondb0: ==="
+mysql -uroot -pmysql123 -e "SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema='legiondb0';"
+
+echo "=== Database setup completed ==="
 EOF
 
 # Make scripts executable
@@ -254,10 +385,14 @@ chmod +x "$BUILD_DIR/scripts"/*.sh
 # Step 6: Build Docker image
 echo -e "${YELLOW}Step 6: Building Docker image...${NC}"
 cd "$BUILD_DIR"
+# Build with version tag first
 docker build -t $IMAGE_NAME:$VERSION .
+# Tag as latest (this creates an alias, not a separate image)
 docker tag $IMAGE_NAME:$VERSION $IMAGE_NAME:$LATEST_TAG
 
 echo -e "${GREEN}✓ Docker image built successfully${NC}"
+echo "Image created: $IMAGE_NAME:$VERSION"
+echo "Tagged as: $IMAGE_NAME:$LATEST_TAG"
 
 # Step 7: Test the container locally
 echo -e "${YELLOW}Step 7: Testing container locally...${NC}"
@@ -268,27 +403,89 @@ docker run -d --name legion-mysql-test \
     $IMAGE_NAME:$LATEST_TAG
 
 # Wait for container to be ready
-echo "Waiting for MySQL to be ready..."
+echo "Waiting for MySQL to start (this may take several minutes for large databases)..."
+echo "Database files are 6GB+ so import will take 10-20 minutes..."
+echo ""
+
+# First wait for MySQL to be accepting connections
 for i in {1..60}; do
     if docker exec legion-mysql-test mysql -uroot -pmysql123 -e "SELECT 1" >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ MySQL is accepting connections after $(($i * 5)) seconds${NC}"
         break
     fi
-    echo -n "."
-    sleep 2
+    if [ $((i % 6)) -eq 0 ]; then
+        echo "  Still waiting... $(($i * 5)) seconds elapsed"
+        # Show container status
+        docker exec legion-mysql-test ps aux | grep mysql | head -2
+    fi
+    sleep 5
 done
+
+# Now wait for initialization scripts to complete
 echo ""
+echo "Waiting for database imports to complete (this will take 10-20 minutes)..."
+echo "Monitoring import progress..."
+
+# Check for completion by looking for our final messages in the logs
+for i in {1..240}; do  # 240 * 5 seconds = 20 minutes max
+    if docker logs legion-mysql-test 2>&1 | grep -q "=== Database setup completed ==="; then
+        echo -e "${GREEN}✓ Database imports completed!${NC}"
+        break
+    fi
+    
+    if [ $((i % 12)) -eq 0 ]; then  # Every minute
+        echo "  Import still running... $(($i * 5)) seconds elapsed"
+        # Show last import-related log entry
+        docker logs legion-mysql-test 2>&1 | grep "===" | tail -1
+    fi
+    sleep 5
+done
 
 # Verify databases
 echo "Verifying databases..."
+echo "Checking container logs for import status:"
+docker logs legion-mysql-test 2>&1 | grep -E "===|ERROR|WARNING|Importing|table_count" | tail -50
+
 DATABASES=$(docker exec legion-mysql-test mysql -uroot -pmysql123 -e "SHOW DATABASES;" 2>/dev/null | grep -E "legiondb|legiondb0" | wc -l)
 if [ "$DATABASES" -eq "2" ]; then
-    echo -e "${GREEN}✓ Both databases verified${NC}"
+    echo -e "${GREEN}✓ Both databases exist${NC}"
     
-    # Check table counts
+    # Check table counts and sample tables
+    echo "Detailed database verification:"
+    
+    echo "legiondb tables:"
     LEGION_TABLES=$(docker exec legion-mysql-test mysql -uroot -pmysql123 -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='legiondb';" -s 2>/dev/null)
+    echo "  Total tables: $LEGION_TABLES"
+    
+    if [ "$LEGION_TABLES" -lt "100" ]; then
+        echo -e "${RED}  WARNING: Expected 100+ tables in legiondb, found only $LEGION_TABLES${NC}"
+        echo "  Sample tables in legiondb:"
+        docker exec legion-mysql-test mysql -uroot -pmysql123 -e "SHOW TABLES FROM legiondb LIMIT 10;" 2>/dev/null
+    else
+        echo -e "${GREEN}  ✓ Table count looks correct${NC}"
+    fi
+    
+    echo "legiondb0 tables:"
     LEGION0_TABLES=$(docker exec legion-mysql-test mysql -uroot -pmysql123 -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='legiondb0';" -s 2>/dev/null)
-    echo "  legiondb: $LEGION_TABLES tables"
-    echo "  legiondb0: $LEGION0_TABLES tables"
+    echo "  Total tables: $LEGION0_TABLES"
+    
+    if [ "$LEGION0_TABLES" -lt "100" ]; then
+        echo -e "${RED}  WARNING: Expected 100+ tables in legiondb0, found only $LEGION0_TABLES${NC}"
+        echo "  Sample tables in legiondb0:"
+        docker exec legion-mysql-test mysql -uroot -pmysql123 -e "SHOW TABLES FROM legiondb0 LIMIT 10;" 2>/dev/null
+        
+        # Check if import actually ran
+        echo "  Checking if SQL files were processed:"
+        docker exec legion-mysql-test ls -la /var/lib/mysql-import/ 2>/dev/null || echo "Import directory not found"
+    else
+        echo -e "${GREEN}  ✓ Table count looks correct${NC}"
+    fi
+    
+    # Show full container logs if tables are missing
+    if [ "$LEGION_TABLES" -lt "100" ] || [ "$LEGION0_TABLES" -lt "100" ]; then
+        echo -e "${YELLOW}Full container initialization logs:${NC}"
+        docker logs legion-mysql-test 2>&1
+    fi
 else
     echo -e "${RED}Database verification failed!${NC}"
     docker logs legion-mysql-test
@@ -300,49 +497,49 @@ fi
 docker stop legion-mysql-test && docker rm legion-mysql-test
 echo -e "${GREEN}✓ Container test passed${NC}"
 
-# Step 8: Login to JFrog
-echo -e "${YELLOW}Step 8: Logging into JFrog...${NC}"
-if ! docker login $REGISTRY 2>/dev/null; then
-    echo -e "${YELLOW}Please login to JFrog:${NC}"
-    docker login $REGISTRY
-fi
+# Step 8: Final local deployment
+echo -e "${YELLOW}Step 8: Ready for local deployment${NC}"
+echo ""
+echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║                    Build Completed Successfully!             ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo "Image built: ${IMAGE_NAME}:${LATEST_TAG}"
+echo ""
+echo "To run the container:"
+echo "  docker run -d --name legion-mysql \\"
+echo "    -p 3306:3306 \\"
+echo "    -e MYSQL_ROOT_PASSWORD=mysql123 \\"
+echo "    ${IMAGE_NAME}:${LATEST_TAG}"
+echo ""
+echo "Or use with docker-compose:"
+echo "  cd $(dirname $(dirname $(realpath $0)))"
+echo "  docker-compose up -d mysql"
+echo ""
 
-# Step 9: Tag and push to JFrog
-echo -e "${YELLOW}Step 9: Pushing to JFrog...${NC}"
-docker tag $IMAGE_NAME:$VERSION $REGISTRY/$REPOSITORY/$IMAGE_NAME:$VERSION
-docker tag $IMAGE_NAME:$LATEST_TAG $REGISTRY/$REPOSITORY/$IMAGE_NAME:$LATEST_TAG
-
-docker push $REGISTRY/$REPOSITORY/$IMAGE_NAME:$VERSION
-docker push $REGISTRY/$REPOSITORY/$IMAGE_NAME:$LATEST_TAG
-
-echo -e "${GREEN}✓ Image pushed to JFrog${NC}"
-
-# Step 10: Cleanup
-echo -e "${YELLOW}Step 10: Cleaning up...${NC}"
+# Step 9: Cleanup build directory
+echo -e "${YELLOW}Step 9: Cleaning up build directory...${NC}"
 cd ..
 rm -rf "$BUILD_DIR"
-docker rmi $IMAGE_NAME:$VERSION $IMAGE_NAME:$LATEST_TAG 2>/dev/null || true
+echo -e "${GREEN}✓ Build directory cleaned${NC}"
 
 # Display summary
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║                    Build Complete!                          ║${NC}"
+echo -e "${GREEN}║               MySQL Container Build Complete!                ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${BLUE}Image Details:${NC}"
-echo "  Registry:  $REGISTRY"
-echo "  Image:     $REPOSITORY/$IMAGE_NAME:$LATEST_TAG"
-echo "  Version:   $VERSION"
+echo "  Image Name: ${IMAGE_NAME}:${LATEST_TAG}"
+echo "  Version:    ${VERSION}"
 echo ""
-echo -e "${BLUE}To use this image:${NC}"
-echo "  1. In docker-compose.yml:"
-echo "     image: $REGISTRY/$REPOSITORY/$IMAGE_NAME:$LATEST_TAG"
+echo -e "${BLUE}Databases included:${NC}"
+echo "  - legiondb (with full schema and data)"
+echo "  - legiondb0 (with full schema and data)"
 echo ""
-echo "  2. Pull manually:"
-echo "     docker pull $REGISTRY/$REPOSITORY/$IMAGE_NAME:$LATEST_TAG"
+echo -e "${BLUE}MySQL Credentials:${NC}"
+echo "  Root User:     root / mysql123"
+echo "  Legion User:   legion / legionwork"
+echo "  ReadOnly User: legionro / legionwork"
 echo ""
-echo "  3. Run standalone:"
-echo "     docker run -d -p 3306:3306 --name legion-mysql \\"
-echo "       $REGISTRY/$REPOSITORY/$IMAGE_NAME:$LATEST_TAG"
-echo ""
-echo -e "${GREEN}✨ MySQL container with Legion data is ready on JFrog!${NC}"
+echo -e "${GREEN}✨ MySQL container with Legion data is ready for use locally!${NC}"

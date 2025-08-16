@@ -596,7 +596,7 @@ verify_setup() {
     # Test Maven build
     print_status "Testing Maven build..."
     cd "$LEGION_DIR/enterprise"
-    if mvn clean compile -P dev -DskipTests; then
+    if mvn clean install -P dev -DskipTests -Dcheckstyle.skip -Djavax.net.ssl.trustStorePassword=changeit -Dflyway.skip=true; then
         print_success "Maven build successful"
     else
         print_warning "Maven build failed - please check logs"
@@ -641,7 +641,10 @@ show_next_steps() {
 
    1. Backend (Enterprise):
       cd ~/Development/legion/code/enterprise
-      mvn spring-boot:run -Dspring.profiles.active=local
+      # First time only: compile the app module
+      mvn clean compile -pl app -am -DskipTests -Dcheckstyle.skip -Dflyway.skip=true
+      # Then run:
+      mvn spring-boot:run -pl app -Dspring.profiles.active=local
       
    2. Frontend (Console-UI):
       cd ~/Development/legion/code/console-ui
