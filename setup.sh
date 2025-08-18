@@ -693,6 +693,25 @@ verify_setup() {
     # Test Maven build
     print_status "Testing Maven build..."
     cd "$LEGION_DIR/enterprise"
+    
+    # First ensure Lombok annotation processing is configured
+    print_status "Checking Lombok configuration..."
+    if ! grep -q "annotationProcessorPaths" pom.xml; then
+        print_status "Adding Lombok annotation processor configuration..."
+        # Add the annotation processor configuration to maven-compiler-plugin
+        sed -i.bak '/<artifactId>maven-compiler-plugin<\/artifactId>/,/<\/plugin>/ {
+            /<configuration>/a\
+                        <annotationProcessorPaths>\
+                            <path>\
+                                <groupId>org.projectlombok</groupId>\
+                                <artifactId>lombok</artifactId>\
+                                <version>1.18.38</version>\
+                            </path>\
+                        </annotationProcessorPaths>
+        }' pom.xml
+        print_success "Lombok configuration added"
+    fi
+    
     if mvn clean install -P dev -DskipTests -Dcheckstyle.skip -Djavax.net.ssl.trustStorePassword=changeit -Dflyway.skip=true; then
         print_success "Maven build successful"
     else
