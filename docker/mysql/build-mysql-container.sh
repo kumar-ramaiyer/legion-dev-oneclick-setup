@@ -18,9 +18,10 @@ CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
-# Metrics tracking
-declare -A STEP_TIMES
-declare -A STEP_NAMES
+# Metrics tracking (using regular arrays for compatibility)
+STEP_TIMES=()
+STEP_NAMES=()
+STEP_DURATIONS=()
 SCRIPT_START=$(date +%s)
 CURRENT_STEP=0
 
@@ -28,16 +29,16 @@ CURRENT_STEP=0
 start_step() {
     CURRENT_STEP=$1
     STEP_NAMES[$1]="$2"
-    STEP_TIMES["${1}_start"]=$(date +%s)
+    STEP_TIMES[$1]=$(date +%s)
     echo -e "${YELLOW}Step $1: $2${NC}"
 }
 
 end_step() {
     local step=$1
     local end_time=$(date +%s)
-    local start_time=${STEP_TIMES["${step}_start"]}
+    local start_time=${STEP_TIMES[$step]}
     local duration=$((end_time - start_time))
-    STEP_TIMES["${step}_duration"]=$duration
+    STEP_DURATIONS[$step]=$duration
     echo -e "${CYAN}  ⏱️  Step $step completed in ${duration} seconds${NC}"
     echo ""
 }
@@ -55,20 +56,12 @@ print_metrics_summary() {
     echo -e "${BLUE}Stage Timing Breakdown:${NC}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
-    local longest_name=0
-    for i in "${!STEP_NAMES[@]}"; do
-        local name_length=${#STEP_NAMES[$i]}
-        if [ $name_length -gt $longest_name ]; then
-            longest_name=$name_length
-        fi
-    done
-    
-    for i in $(seq 1 $CURRENT_STEP | sort -n); do
+    for i in $(seq 1 $CURRENT_STEP); do
         if [ ! -z "${STEP_NAMES[$i]}" ]; then
-            local duration=${STEP_TIMES["${i}_duration"]}
+            local duration=${STEP_DURATIONS[$i]}
             if [ ! -z "$duration" ]; then
                 local percentage=$((duration * 100 / total_time))
-                printf "  Step %d: %-${longest_name}s : %3d seconds (%2d%%)\n" \
+                printf "  Step %d: %-40s : %3d seconds (%2d%%)\n" \
                     "$i" "${STEP_NAMES[$i]}" "$duration" "$percentage"
             fi
         fi

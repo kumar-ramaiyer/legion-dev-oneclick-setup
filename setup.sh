@@ -23,9 +23,10 @@ CYAN='\033[0;36m'
 PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
-# Metrics tracking
-declare -A STAGE_TIMES
-declare -A STAGE_NAMES
+# Metrics tracking (using regular arrays for compatibility)
+STAGE_TIMES=()
+STAGE_NAMES=()
+STAGE_DURATIONS=()
 SETUP_START=$(date +%s)
 CURRENT_STAGE=0
 
@@ -35,7 +36,7 @@ start_stage() {
     local stage_name="$2"
     CURRENT_STAGE=$stage_num
     STAGE_NAMES[$stage_num]="$stage_name"
-    STAGE_TIMES["${stage_num}_start"]=$(date +%s)
+    STAGE_TIMES[$stage_num]=$(date +%s)
     echo -e "${MAGENTA}━━━ Stage $stage_num: $stage_name ━━━${NC}" | tee -a "$LOG_FILE"
 }
 
@@ -43,9 +44,9 @@ start_stage() {
 end_stage() {
     local stage_num=$1
     local end_time=$(date +%s)
-    local start_time=${STAGE_TIMES["${stage_num}_start"]}
+    local start_time=${STAGE_TIMES[$stage_num]}
     local duration=$((end_time - start_time))
-    STAGE_TIMES["${stage_num}_duration"]=$duration
+    STAGE_DURATIONS[$stage_num]=$duration
     echo -e "${CYAN}  ⏱️  Stage $stage_num completed in ${duration} seconds${NC}" | tee -a "$LOG_FILE"
     echo ""
 }
@@ -73,9 +74,9 @@ print_setup_metrics() {
     done
     
     # Print each stage with timing
-    for i in $(seq 1 $CURRENT_STAGE | sort -n); do
+    for i in $(seq 1 $CURRENT_STAGE); do
         if [ ! -z "${STAGE_NAMES[$i]}" ]; then
-            local duration=${STAGE_TIMES["${i}_duration"]}
+            local duration=${STAGE_DURATIONS[$i]}
             if [ ! -z "$duration" ]; then
                 local percentage=$((duration * 100 / total_time))
                 local mins=$((duration / 60))
@@ -100,7 +101,7 @@ print_setup_metrics() {
     local slowest_stage=0
     local slowest_time=0
     for i in $(seq 1 $CURRENT_STAGE); do
-        local duration=${STAGE_TIMES["${i}_duration"]}
+        local duration=${STAGE_DURATIONS[$i]}
         if [ ! -z "$duration" ] && [ $duration -gt $slowest_time ]; then
             slowest_time=$duration
             slowest_stage=$i
