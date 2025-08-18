@@ -756,10 +756,11 @@ show_next_steps() {
 🚀 TO START DEVELOPMENT:
 
    1. Backend (Enterprise):
+      # Option A: Use the run script (recommended)
+      ~/work/legion-dev-oneclick-setup/run-backend.sh
+      
+      # Option B: Use Maven spring-boot:run
       cd ~/Development/legion/code/enterprise
-      # First time only: compile the app module
-      mvn clean compile -pl app -am -DskipTests -Dcheckstyle.skip -Dflyway.skip=true
-      # Then run:
       mvn spring-boot:run -pl app -Dspring.profiles.active=local
       
    2. Frontend (Console-UI):
