@@ -757,7 +757,7 @@ show_next_steps() {
 
    1. Backend (Enterprise):
       # Option A: Use the run script (recommended)
-      ~/work/legion-dev-oneclick-setup/run-backend.sh
+      ./scripts/run-backend.sh
       
       # Option B: Use Maven spring-boot:run
       cd ~/Development/legion/code/enterprise

@@ -2,6 +2,7 @@
 
 # Legion Backend Runner Script
 # This script runs the Legion backend application with all necessary JVM arguments
+# Can be run from anywhere - it will find the enterprise directory
 
 # Colors for output
 RED='\033[0;31m'
@@ -10,8 +11,23 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Set the root directory
-ENTERPRISE_ROOT="$HOME/Development/legion/code/enterprise"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Set the root directory - check multiple possible locations
+if [ -d "$HOME/Development/legion/code/enterprise" ]; then
+    ENTERPRISE_ROOT="$HOME/Development/legion/code/enterprise"
+elif [ -d "$HOME/legion/code/enterprise" ]; then
+    ENTERPRISE_ROOT="$HOME/legion/code/enterprise"
+elif [ -d "../enterprise" ]; then
+    ENTERPRISE_ROOT="$(cd ../enterprise && pwd)"
+else
+    echo -e "${RED}Error: Could not find enterprise directory${NC}"
+    echo "Expected locations:"
+    echo "  - $HOME/Development/legion/code/enterprise"
+    echo "  - $HOME/legion/code/enterprise"
+    exit 1
+fi
 
 # Check if enterprise directory exists
 if [ ! -d "$ENTERPRISE_ROOT" ]; then
