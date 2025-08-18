@@ -157,7 +157,13 @@ echo ""
 # Change to enterprise directory
 cd "$ENTERPRISE_ROOT"
 
-# Run the application
-exec java "${JVM_ARGS[@]}" \
-    -cp "$APP_JAR" \
-    com.legion.platform.server.base.SpringWebServer
+# Run the application using Maven spring-boot:run
+# This handles finding the main class automatically
+# Convert JVM_ARGS array to a single string for Maven
+JVM_ARGS_STRING=""
+for arg in "${JVM_ARGS[@]}"; do
+    JVM_ARGS_STRING="$JVM_ARGS_STRING $arg"
+done
+
+exec mvn spring-boot:run -pl app \
+    -Dspring-boot.run.jvmArguments="$JVM_ARGS_STRING"

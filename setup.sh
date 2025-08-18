@@ -344,6 +344,15 @@ setup_docker_environment() {
     # Priority 1: Check if locally built image exists
     if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "legion-mysql:latest"; then
         print_success "✓ Found locally built Legion MySQL image"
+        
+        # IMPORTANT: If using a freshly built MySQL image, remove old volume data
+        if docker volume ls | grep -q "docker_mysql-data"; then
+            print_warning "Found existing MySQL data volume"
+            print_status "Removing old MySQL volume to use fresh data from image..."
+            docker-compose down mysql 2>/dev/null || true
+            docker volume rm docker_mysql-data 2>/dev/null || true
+            print_success "Old MySQL volume removed - will use fresh data from image"
+        fi
         # Update docker-compose to use local image
         sed -i.bak 's|image: mysql:8.0|image: legion-mysql:latest|' docker-compose.yml
         sed -i.bak 's|image: legiontech.jfrog.io/docker-local/legion-mysql:latest|image: legion-mysql:latest|' docker-compose.yml
