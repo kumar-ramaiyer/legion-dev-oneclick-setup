@@ -372,9 +372,9 @@ import sys
 def fix_database_collation(database_name):
     print(f"Fixing collations for {database_name}...")
     
-    # Database connection
+    # Database connection - use socket during initialization
     conn = mysql.connector.connect(
-        host="localhost",
+        unix_socket="/var/run/mysqld/mysqld.sock",
         user="root",
         password="mysql123",
         database=database_name
@@ -423,11 +423,47 @@ python3 /tmp/fix_collations.py 2>&1 || {
     echo "=== WARNING: Python script failed, but continuing ==="
 }
 
-# Insert Enterprise Schema from legiondb to legiondb0 (as per README)
-echo "=== Copying Enterprise Schema from legiondb to legiondb0 ==="
-mysql -uroot -pmysql123 << 'SQL' 2>&1 || {
-    echo "=== WARNING: EnterpriseSchema copy failed (table may not exist yet) ==="
-}
+# Create EnterpriseSchema table if it doesn't exist (from migration V49_38.0.1699000000000)
+echo "=== Creating EnterpriseSchema table if needed ==="
+mysql -uroot -pmysql123 << 'SQL' 2>&1
+CREATE TABLE IF NOT EXISTS legiondb.EnterpriseSchema (
+    id bigint not null auto_increment,
+    objectId varchar(36),
+    active bit not null default 0,
+    createdBy varchar(50),
+    createdDate datetime(6) default CURRENT_TIMESTAMP(6),
+    lastModifiedBy varchar(50),
+    lastModifiedDate datetime(6) on update CURRENT_TIMESTAMP(6),
+    timeCreated bigint not null default 0,
+    timeUpdated bigint not null default 0,
+    enterpriseId varchar(36) not null,
+    schemaKey varchar(255) not null,
+    primary key (id),
+    UNIQUE KEY ESCHUnique1 (enterpriseId, schemaKey)
+) engine=InnoDB;
+
+CREATE TABLE IF NOT EXISTS legiondb0.EnterpriseSchema (
+    id bigint not null auto_increment,
+    objectId varchar(36),
+    active bit not null default 0,
+    createdBy varchar(50),
+    createdDate datetime(6) default CURRENT_TIMESTAMP(6),
+    lastModifiedBy varchar(50),
+    lastModifiedDate datetime(6) on update CURRENT_TIMESTAMP(6),
+    timeCreated bigint not null default 0,
+    timeUpdated bigint not null default 0,
+    enterpriseId varchar(36) not null,
+    schemaKey varchar(255) not null,
+    primary key (id),
+    UNIQUE KEY ESCHUnique1 (enterpriseId, schemaKey)
+) engine=InnoDB;
+
+-- Insert default enterprise mapping for local development
+INSERT IGNORE INTO legiondb0.EnterpriseSchema (enterpriseId, schemaKey) VALUES 
+('1', 'default'),
+('1', 'legiondb0');
+
+-- Copy any existing data from legiondb to legiondb0
 INSERT IGNORE INTO legiondb0.EnterpriseSchema 
 SELECT * FROM legiondb.EnterpriseSchema;
 SQL
