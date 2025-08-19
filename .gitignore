@@ -62,3 +62,25 @@ docker/docker-compose.yml.bak
 # Test files
 *.test
 *.spec
+
+# Additional backup file patterns
+*.backup.*
+*.bak.*
+setup_config.yaml.backup.*
+
+# Additional certificate patterns  
+*.p12
+*.pfx
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+
+# Pytest cache
+.pytest_cache/
