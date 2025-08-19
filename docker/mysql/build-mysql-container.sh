@@ -128,10 +128,37 @@ end_step 1
 start_step 2 "Checking for database dump files"
 
 # Check if dbdumps folder is specified
-DBDUMPS_FOLDER="${DBDUMPS_FOLDER:-$HOME/work/dbdumps}"
+if [ -z "$DBDUMPS_FOLDER" ]; then
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}Database dump files are required to build the MySQL container${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Please download the following files from Google Drive:"
+    echo -e "${BLUE}https://drive.google.com/drive/folders/1WhTR6fP9KkFO4m7mxLSGu-Ksf4erQ6RK${NC}"
+    echo ""
+    echo "Required files:"
+    echo "  • storedprocedures.sql"
+    echo "  • legiondb.sql.zip (5.6GB)"
+    echo "  • legiondb0.sql.zip (306MB)"
+    echo ""
+    read -p "Enter the path to your dbdumps folder (or press Enter to use ~/dbdumps): " user_path
+    
+    if [ -z "$user_path" ]; then
+        DBDUMPS_FOLDER="$HOME/dbdumps"
+    else
+        # Expand tilde if present
+        DBDUMPS_FOLDER="${user_path/#\~/$HOME}"
+    fi
+fi
+
 if [ ! -d "$DBDUMPS_FOLDER" ]; then
     echo -e "${RED}Database dumps folder not found: $DBDUMPS_FOLDER${NC}"
-    echo "Please set DBDUMPS_FOLDER environment variable or place files in $HOME/work/dbdumps"
+    echo ""
+    echo "Please:"
+    echo "1. Create the folder: mkdir -p $DBDUMPS_FOLDER"
+    echo "2. Download files from: ${BLUE}https://drive.google.com/drive/folders/1WhTR6fP9KkFO4m7mxLSGu-Ksf4erQ6RK${NC}"
+    echo "3. Place the files in: $DBDUMPS_FOLDER"
+    echo "4. Run this script again"
     exit 1
 fi
 

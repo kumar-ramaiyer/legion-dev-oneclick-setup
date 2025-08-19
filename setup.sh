@@ -700,8 +700,8 @@ verify_setup() {
     
     LEGION_DIR="$HOME/Development/legion/code"
     
-    # Test Maven build
-    print_status "Testing Maven build..."
+    # Build Maven project using run-backend script
+    print_status "Building Maven project..."
     cd "$LEGION_DIR/enterprise"
     
     # First ensure Lombok annotation processing is configured
@@ -722,7 +722,9 @@ verify_setup() {
         print_success "Lombok configuration added"
     fi
     
-    if mvn clean install -P dev -DskipTests -Dcheckstyle.skip -Djavax.net.ssl.trustStorePassword=changeit -Dflyway.skip=true; then
+    # Use run-backend.sh script to build (it handles all the Maven flags properly)
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if "$SCRIPT_DIR/scripts/run-backend.sh" --build-only; then
         print_success "Maven build successful"
     else
         print_warning "Maven build failed - please check logs"

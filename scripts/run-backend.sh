@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # Legion Backend Runner Script
-# This script runs the Legion backend application with all necessary JVM arguments
-# Can be run from anywhere - it will find the enterprise directory
+# This script builds and/or runs the Legion backend application with all necessary JVM arguments
+# Usage: ./run-backend.sh [--build-only]
+#   --build-only: Only build the application, don't run it
 
 # Colors for output
 RED='\033[0;31m'
@@ -10,6 +11,12 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Parse arguments
+BUILD_ONLY=false
+if [ "$1" == "--build-only" ]; then
+    BUILD_ONLY=true
+fi
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,16 +51,34 @@ if [ ! -f "$ENTERPRISE_ROOT/config/target/resources/local/application.yml" ]; th
     mvn clean compile -P dev -pl config
 fi
 
-# Check if the app JAR exists
-APP_JAR="$ENTERPRISE_ROOT/app/target/legion-app-1.0-SNAPSHOT.jar"
-if [ ! -f "$APP_JAR" ]; then
-    echo -e "${YELLOW}Application JAR not found. Building...${NC}"
+# Build the application
+if [ "$BUILD_ONLY" == "true" ]; then
+    echo -e "${BLUE}Building Legion Backend (build-only mode)...${NC}"
+else
+    # Check if the app JAR exists
+    APP_JAR="$ENTERPRISE_ROOT/app/target/legion-app-1.0-SNAPSHOT.jar"
+    if [ ! -f "$APP_JAR" ]; then
+        echo -e "${YELLOW}Application JAR not found. Building...${NC}"
+    fi
+fi
+
+# Always build if in build-only mode or if JAR is missing
+if [ "$BUILD_ONLY" == "true" ] || [ ! -f "$APP_JAR" ]; then
     cd "$ENTERPRISE_ROOT"
+    echo -e "${BLUE}Running Maven build...${NC}"
     mvn clean install -P dev -DskipTests -Dcheckstyle.skip -Djavax.net.ssl.trustStorePassword=changeit -Dflyway.skip=true
     
-    if [ ! -f "$APP_JAR" ]; then
-        echo -e "${RED}Failed to build application JAR${NC}"
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✓ Maven build successful${NC}"
+    else
+        echo -e "${RED}✗ Maven build failed${NC}"
         exit 1
+    fi
+    
+    # If build-only mode, exit here
+    if [ "$BUILD_ONLY" == "true" ]; then
+        echo -e "${GREEN}Build completed successfully (build-only mode)${NC}"
+        exit 0
     fi
 fi
 
