@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Import setup modules
 from setup_modules.installer import SoftwareInstaller
@@ -155,6 +155,11 @@ class LegionDevSetup:
         self.platform = platform.system().lower()
         self.setup_start_time = time.time()
         self.results: List[SetupResult] = []
+        
+        # Metrics tracking
+        self.stage_metrics = {}
+        self.current_stage = None
+        self.stage_start_time = None
         
         # Create directories first
         self.setup_dir = Path.home() / ".legion_setup"
@@ -341,6 +346,87 @@ versions:
   maven: "3.9.9"
 ---
         """)
+
+    def start_stage_timing(self, stage_name: str):
+        """Start timing a setup stage."""
+        self.current_stage = stage_name
+        self.stage_start_time = time.time()
+        self.logger.info(f"Starting stage: {stage_name}")
+        print(f"\n{'='*60}")
+        print(f"Starting stage: {stage_name}")
+        print(f"{'='*60}")
+    
+    def end_stage_timing(self, stage_name: str):
+        """End timing a setup stage and record metrics."""
+        if self.stage_start_time:
+            duration = time.time() - self.stage_start_time
+            self.stage_metrics[stage_name] = {
+                'duration': duration,
+                'start_time': self.stage_start_time,
+                'end_time': time.time()
+            }
+            self.logger.info(f"Stage {stage_name} completed in {duration:.2f} seconds")
+            print(f"⏱️  Stage completed in {duration:.2f} seconds")
+    
+    def print_metrics_summary(self):
+        """Print comprehensive metrics summary at the end of setup."""
+        total_time = time.time() - self.setup_start_time
+        
+        print("\n" + "="*70)
+        print(" " * 20 + "SETUP METRICS SUMMARY")
+        print("="*70)
+        
+        # Stage breakdown
+        if self.stage_metrics:
+            print("\nStage Timing Breakdown:")
+            print("-" * 70)
+            
+            max_name_len = max(len(name) for name in self.stage_metrics.keys())
+            
+            for stage_name, metrics in self.stage_metrics.items():
+                duration = metrics['duration']
+                percentage = (duration / total_time) * 100
+                mins = int(duration // 60)
+                secs = int(duration % 60)
+                
+                # Create a visual bar
+                bar_length = int(percentage / 2)  # Scale to 50 chars max
+                bar = '█' * bar_length + '░' * (50 - bar_length)
+                
+                print(f"  {stage_name:<{max_name_len}} : {mins:2d}m {secs:2d}s ({percentage:5.1f}%) {bar}")
+            
+            print("-" * 70)
+        
+        # Summary statistics
+        print(f"\n📊 Summary Statistics:")
+        print(f"  • Total setup time: {int(total_time//60)} minutes {int(total_time%60)} seconds")
+        print(f"  • Number of stages: {len(self.stage_metrics)}")
+        
+        if self.stage_metrics:
+            avg_time = sum(m['duration'] for m in self.stage_metrics.values()) / len(self.stage_metrics)
+            print(f"  • Average stage time: {int(avg_time)} seconds")
+            
+            # Find slowest stage
+            slowest = max(self.stage_metrics.items(), key=lambda x: x[1]['duration'])
+            print(f"  • Slowest stage: {slowest[0]} ({int(slowest[1]['duration'])} seconds)")
+            
+            # Find fastest stage
+            fastest = min(self.stage_metrics.items(), key=lambda x: x[1]['duration'])
+            print(f"  • Fastest stage: {fastest[0]} ({int(fastest[1]['duration'])} seconds)")
+        
+        print("\n" + "="*70)
+        
+        # Log metrics to file
+        metrics_file = self.log_dir / f"metrics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(metrics_file, 'w') as f:
+            json.dump({
+                'total_time': total_time,
+                'stages': self.stage_metrics,
+                'timestamp': datetime.now().isoformat()
+            }, f, indent=2)
+        
+        print(f"📝 Detailed metrics saved to: {metrics_file}")
+        print("="*70 + "\n")
 
     def check_prerequisites(self) -> List[SetupResult]:
         """
@@ -1146,8 +1232,10 @@ Backups will be created in: {self.backup_dir}
                     return False
             
             # Run initial prerequisite checks
+            self.start_stage_timing("Prerequisites Check")
             self.logger.info("🔍 Running initial prerequisite checks...")
             prereq_results = self.check_prerequisites()
+            self.end_stage_timing("Prerequisites Check")
             
             # Separate critical system failures from installable software
             system_failures = []
@@ -1176,6 +1264,7 @@ Backups will be created in: {self.backup_dir}
             
             # If software is missing, install it first
             if missing_software:
+                self.start_stage_timing("Software Installation")
                 self.logger.info("📦 Missing software detected. Installing required packages...")
                 for software in missing_software:
                     self.logger.info(f"  - {software.message}")
@@ -1183,6 +1272,7 @@ Backups will be created in: {self.backup_dir}
                 # Install missing software
                 install_result = self._install_missing_software()
                 self.results.append(install_result)
+                self.end_stage_timing("Software Installation")
                 
                 if not install_result.success:
                     self.logger.error(f"❌ Software installation failed: {install_result.message}")
@@ -1208,39 +1298,45 @@ Backups will be created in: {self.backup_dir}
             
             # Continue with remaining setup stages
             setup_stages = [
-                ("🔐 Setting up Git and GitHub", self._setup_git_github),
-                ("🐳 Setting up Docker and containers", self._setup_docker_containers),
-                ("📋 Setting up JFrog and Maven", self._setup_jfrog_maven),
-                ("🔧 Configuring development environment", self._setup_development_environment),
-                ("🗄️ Setting up databases", self._setup_databases),
-                ("🏗️ Building application", self._build_application),
-                ("✅ Verifying installation", self._verify_installation)
+                ("🔐 Setting up Git and GitHub", "Git and GitHub Setup", self._setup_git_github),
+                ("🐳 Setting up Docker and containers", "Docker Setup", self._setup_docker_containers),
+                ("📋 Setting up JFrog and Maven", "JFrog and Maven Setup", self._setup_jfrog_maven),
+                ("🔧 Configuring development environment", "Development Environment", self._setup_development_environment),
+                ("🗄️ Setting up databases", "Database Setup", self._setup_databases),
+                ("🏗️ Building application", "Application Build", self._build_application),
+                ("✅ Verifying installation", "Installation Verification", self._verify_installation)
             ]
             
-            for stage_name, stage_func in setup_stages:
-                self.logger.info(stage_name)
+            for stage_display, stage_metric_name, stage_func in setup_stages:
+                self.logger.info(stage_display)
+                self.start_stage_timing(stage_metric_name)
                 try:
                     result = stage_func()
                     self.results.append(result)
+                    self.end_stage_timing(stage_metric_name)
                     
                     if not result.success:
                         self.logger.error(f"❌ Stage failed: {result.message}")
                         if not self.config.get('advanced', {}).get('continue_on_error', False):
                             return False
                 except Exception as e:
+                    self.end_stage_timing(stage_metric_name)
                     self.logger.error(f"❌ Stage error: {str(e)}")
                     if not self.config.get('advanced', {}).get('continue_on_error', False):
                         return False
             
             # Setup completed
             self._show_completion_summary()
+            self.print_metrics_summary()  # Print metrics summary at the end
             return True
             
         except KeyboardInterrupt:
             self.logger.warning("⚠️  Setup interrupted by user")
+            self.print_metrics_summary()  # Print metrics even on interruption
             return False
         except Exception as e:
             self.logger.error(f"❌ Setup failed with error: {str(e)}")
+            self.print_metrics_summary()  # Print metrics even on failure
             return False
 
     def _install_missing_software(self) -> SetupResult:

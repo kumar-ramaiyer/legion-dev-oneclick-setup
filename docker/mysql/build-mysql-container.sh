@@ -14,16 +14,74 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
+
+# Metrics tracking (using regular arrays for compatibility)
+STEP_TIMES=()
+STEP_NAMES=()
+STEP_DURATIONS=()
+SCRIPT_START=$(date +%s)
+CURRENT_STEP=0
+
+# Function to record step time
+start_step() {
+    CURRENT_STEP=$1
+    STEP_NAMES[$1]="$2"
+    STEP_TIMES[$1]=$(date +%s)
+    echo -e "${YELLOW}Step $1: $2${NC}"
+}
+
+end_step() {
+    local step=$1
+    local end_time=$(date +%s)
+    local start_time=${STEP_TIMES[$step]}
+    local duration=$((end_time - start_time))
+    STEP_DURATIONS[$step]=$duration
+    echo -e "${CYAN}  ⏱️  Step $step completed in ${duration} seconds${NC}"
+    echo ""
+}
+
+# Function to print metrics summary
+print_metrics_summary() {
+    local total_time=$(($(date +%s) - SCRIPT_START))
+    
+    echo ""
+    echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${MAGENTA}║                    Build Metrics Summary                     ║${NC}"
+    echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    echo -e "${BLUE}Stage Timing Breakdown:${NC}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    for i in $(seq 1 $CURRENT_STEP); do
+        if [ ! -z "${STEP_NAMES[$i]}" ]; then
+            local duration=${STEP_DURATIONS[$i]}
+            if [ ! -z "$duration" ]; then
+                local percentage=$((duration * 100 / total_time))
+                printf "  Step %d: %-40s : %3d seconds (%2d%%)\n" \
+                    "$i" "${STEP_NAMES[$i]}" "$duration" "$percentage"
+            fi
+        fi
+    done
+    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "${GREEN}Total Build Time: ${total_time} seconds ($(printf '%d:%02d' $((total_time/60)) $((total_time%60))) minutes)${NC}"
+    echo ""
+}
 
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║          Legion MySQL Container Build Script                ║${NC}"
 echo -e "${GREEN}║                  (Local Build Only)                         ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
+echo -e "${CYAN}Build started at: $(date '+%Y-%m-%d %H:%M:%S')${NC}"
+echo ""
 
 # Step 1: Clean up existing containers and images (idempotent)
-echo -e "${YELLOW}Step 1: Cleaning up existing containers and images...${NC}"
+start_step 1 "Cleaning up existing containers and images"
 
 # Stop and remove any existing test containers
 if docker ps -a | grep -q "legion-mysql-test"; then
@@ -64,15 +122,43 @@ fi
 echo "Cleaning up old build directories..."
 rm -rf "$(pwd)"/build-tmp-* 2>/dev/null || true
 echo -e "${GREEN}✓ Cleanup completed${NC}"
+end_step 1
 
 # Step 2: Check for database dump files
-echo -e "${YELLOW}Step 2: Checking for database dump files...${NC}"
+start_step 2 "Checking for database dump files"
 
 # Check if dbdumps folder is specified
-DBDUMPS_FOLDER="${DBDUMPS_FOLDER:-$HOME/work/dbdumps}"
+if [ -z "$DBDUMPS_FOLDER" ]; then
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}Database dump files are required to build the MySQL container${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Please download the following files from Google Drive:"
+    echo -e "${BLUE}https://drive.google.com/drive/folders/1WhTR6fP9KkFO4m7mxLSGu-Ksf4erQ6RK${NC}"
+    echo ""
+    echo "Required files:"
+    echo "  • storedprocedures.sql"
+    echo "  • legiondb.sql.zip (5.6GB)"
+    echo "  • legiondb0.sql.zip (306MB)"
+    echo ""
+    read -p "Enter the path to your dbdumps folder (or press Enter to use ~/dbdumps): " user_path
+    
+    if [ -z "$user_path" ]; then
+        DBDUMPS_FOLDER="$HOME/dbdumps"
+    else
+        # Expand tilde if present
+        DBDUMPS_FOLDER="${user_path/#\~/$HOME}"
+    fi
+fi
+
 if [ ! -d "$DBDUMPS_FOLDER" ]; then
     echo -e "${RED}Database dumps folder not found: $DBDUMPS_FOLDER${NC}"
-    echo "Please set DBDUMPS_FOLDER environment variable or place files in $HOME/work/dbdumps"
+    echo ""
+    echo "Please:"
+    echo "1. Create the folder: mkdir -p $DBDUMPS_FOLDER"
+    echo "2. Download files from: ${BLUE}https://drive.google.com/drive/folders/1WhTR6fP9KkFO4m7mxLSGu-Ksf4erQ6RK${NC}"
+    echo "3. Place the files in: $DBDUMPS_FOLDER"
+    echo "4. Run this script again"
     exit 1
 fi
 
@@ -91,9 +177,10 @@ for file in "${REQUIRED_FILES[@]}"; do
     fi
 done
 echo -e "${GREEN}✓ All required files found${NC}"
+end_step 2
 
 # Step 3: Prepare build directory
-echo -e "${YELLOW}Step 3: Preparing build directory...${NC}"
+start_step 3 "Preparing build directory"
 BUILD_DIR="$(pwd)/build-tmp-$$"
 mkdir -p "$BUILD_DIR/data"
 mkdir -p "$BUILD_DIR/scripts"
@@ -106,9 +193,10 @@ echo "Extracting legiondb0.sql.zip..."
 unzip -q "$DBDUMPS_FOLDER/legiondb0.sql.zip" -d "$BUILD_DIR/data/"
 
 echo -e "${GREEN}✓ Files prepared${NC}"
+end_step 3
 
 # Step 4: Create MySQL configuration
-echo -e "${YELLOW}Step 4: Creating MySQL configuration...${NC}"
+start_step 4 "Creating MySQL configuration"
 cat > "$BUILD_DIR/my.cnf" << 'EOF'
 [mysqld]
 # MySQL 8.0 configuration for Legion
@@ -138,9 +226,10 @@ connect_timeout=3600
 wait_timeout=3600
 interactive_timeout=3600
 EOF
+end_step 4
 
 # Step 5: Create Dockerfile
-echo -e "${YELLOW}Step 5: Creating Dockerfile...${NC}"
+start_step 5 "Creating Dockerfile"
 cat > "$BUILD_DIR/Dockerfile" << 'EOF'
 # Legion MySQL with pre-loaded data
 FROM mysql:8.0
@@ -174,9 +263,10 @@ LABEL maintainer="Legion DevOps"
 LABEL description="MySQL 8.0 with Legion databases pre-loaded"
 LABEL version="${VERSION}"
 EOF
+end_step 5
 
 # Step 6: Create initialization scripts
-echo -e "${YELLOW}Step 6: Creating initialization scripts...${NC}"
+start_step 6 "Creating initialization scripts"
 
 # 01 - Create databases and users (following README_enterprise.md exactly)
 cat > "$BUILD_DIR/scripts/01-create-databases.sh" << 'EOF'
@@ -309,9 +399,9 @@ import sys
 def fix_database_collation(database_name):
     print(f"Fixing collations for {database_name}...")
     
-    # Database connection
+    # Database connection - use socket during initialization
     conn = mysql.connector.connect(
-        host="localhost",
+        unix_socket="/var/run/mysqld/mysqld.sock",
         user="root",
         password="mysql123",
         database=database_name
@@ -360,11 +450,47 @@ python3 /tmp/fix_collations.py 2>&1 || {
     echo "=== WARNING: Python script failed, but continuing ==="
 }
 
-# Insert Enterprise Schema from legiondb to legiondb0 (as per README)
-echo "=== Copying Enterprise Schema from legiondb to legiondb0 ==="
-mysql -uroot -pmysql123 << 'SQL' 2>&1 || {
-    echo "=== WARNING: EnterpriseSchema copy failed (table may not exist yet) ==="
-}
+# Create EnterpriseSchema table if it doesn't exist (from migration V49_38.0.1699000000000)
+echo "=== Creating EnterpriseSchema table if needed ==="
+mysql -uroot -pmysql123 << 'SQL' 2>&1
+CREATE TABLE IF NOT EXISTS legiondb.EnterpriseSchema (
+    id bigint not null auto_increment,
+    objectId varchar(36),
+    active bit not null default 0,
+    createdBy varchar(50),
+    createdDate datetime(6) default CURRENT_TIMESTAMP(6),
+    lastModifiedBy varchar(50),
+    lastModifiedDate datetime(6) on update CURRENT_TIMESTAMP(6),
+    timeCreated bigint not null default 0,
+    timeUpdated bigint not null default 0,
+    enterpriseId varchar(36) not null,
+    schemaKey varchar(255) not null,
+    primary key (id),
+    UNIQUE KEY ESCHUnique1 (enterpriseId, schemaKey)
+) engine=InnoDB;
+
+CREATE TABLE IF NOT EXISTS legiondb0.EnterpriseSchema (
+    id bigint not null auto_increment,
+    objectId varchar(36),
+    active bit not null default 0,
+    createdBy varchar(50),
+    createdDate datetime(6) default CURRENT_TIMESTAMP(6),
+    lastModifiedBy varchar(50),
+    lastModifiedDate datetime(6) on update CURRENT_TIMESTAMP(6),
+    timeCreated bigint not null default 0,
+    timeUpdated bigint not null default 0,
+    enterpriseId varchar(36) not null,
+    schemaKey varchar(255) not null,
+    primary key (id),
+    UNIQUE KEY ESCHUnique1 (enterpriseId, schemaKey)
+) engine=InnoDB;
+
+-- Insert default enterprise mapping for local development
+INSERT IGNORE INTO legiondb0.EnterpriseSchema (enterpriseId, schemaKey) VALUES 
+('1', 'default'),
+('1', 'legiondb0');
+
+-- Copy any existing data from legiondb to legiondb0
 INSERT IGNORE INTO legiondb0.EnterpriseSchema 
 SELECT * FROM legiondb.EnterpriseSchema;
 SQL
@@ -381,9 +507,10 @@ EOF
 
 # Make scripts executable
 chmod +x "$BUILD_DIR/scripts"/*.sh
+end_step 6
 
-# Step 6: Build Docker image
-echo -e "${YELLOW}Step 6: Building Docker image...${NC}"
+# Step 7: Build Docker image
+start_step 7 "Building Docker image"
 cd "$BUILD_DIR"
 # Build with version tag first
 docker build -t $IMAGE_NAME:$VERSION .
@@ -393,9 +520,10 @@ docker tag $IMAGE_NAME:$VERSION $IMAGE_NAME:$LATEST_TAG
 echo -e "${GREEN}✓ Docker image built successfully${NC}"
 echo "Image created: $IMAGE_NAME:$VERSION"
 echo "Tagged as: $IMAGE_NAME:$LATEST_TAG"
+end_step 7
 
-# Step 7: Test the container locally
-echo -e "${YELLOW}Step 7: Testing container locally...${NC}"
+# Step 8: Test the container locally
+start_step 8 "Testing container locally"
 echo "Starting test container..."
 docker run -d --name legion-mysql-test \
     -p 3307:3306 \
@@ -496,9 +624,10 @@ fi
 # Stop test container
 docker stop legion-mysql-test && docker rm legion-mysql-test
 echo -e "${GREEN}✓ Container test passed${NC}"
+end_step 8
 
-# Step 8: Final local deployment
-echo -e "${YELLOW}Step 8: Ready for local deployment${NC}"
+# Step 9: Final local deployment
+start_step 9 "Ready for local deployment"
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║                    Build Completed Successfully!             ║${NC}"
@@ -516,12 +645,17 @@ echo "Or use with docker-compose:"
 echo "  cd $(dirname $(dirname $(realpath $0)))"
 echo "  docker-compose up -d mysql"
 echo ""
+end_step 9
 
-# Step 9: Cleanup build directory
-echo -e "${YELLOW}Step 9: Cleaning up build directory...${NC}"
+# Step 10: Cleanup build directory
+start_step 10 "Cleaning up build directory"
 cd ..
 rm -rf "$BUILD_DIR"
 echo -e "${GREEN}✓ Build directory cleaned${NC}"
+end_step 10
+
+# Print metrics before final summary
+print_metrics_summary
 
 # Display summary
 echo ""

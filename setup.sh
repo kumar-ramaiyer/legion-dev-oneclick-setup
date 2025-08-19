@@ -20,7 +20,104 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
+PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
+
+# Metrics tracking (using regular arrays for compatibility)
+STAGE_TIMES=()
+STAGE_NAMES=()
+STAGE_DURATIONS=()
+SETUP_START=$(date +%s)
+CURRENT_STAGE=0
+
+# Function to start timing a stage
+start_stage() {
+    local stage_num=$1
+    local stage_name="$2"
+    CURRENT_STAGE=$stage_num
+    STAGE_NAMES[$stage_num]="$stage_name"
+    STAGE_TIMES[$stage_num]=$(date +%s)
+    echo -e "${MAGENTA}━━━ Stage $stage_num: $stage_name ━━━${NC}" | tee -a "$LOG_FILE"
+}
+
+# Function to end timing a stage
+end_stage() {
+    local stage_num=$1
+    local end_time=$(date +%s)
+    local start_time=${STAGE_TIMES[$stage_num]}
+    local duration=$((end_time - start_time))
+    STAGE_DURATIONS[$stage_num]=$duration
+    echo -e "${CYAN}  ⏱️  Stage $stage_num completed in ${duration} seconds${NC}" | tee -a "$LOG_FILE"
+    echo ""
+}
+
+# Function to print final metrics summary
+print_setup_metrics() {
+    local total_time=$(($(date +%s) - SETUP_START))
+    
+    echo "" | tee -a "$LOG_FILE"
+    echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════╗${NC}" | tee -a "$LOG_FILE"
+    echo -e "${PURPLE}║                   Setup Metrics Summary                      ║${NC}" | tee -a "$LOG_FILE"
+    echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════╝${NC}" | tee -a "$LOG_FILE"
+    echo "" | tee -a "$LOG_FILE"
+    
+    echo -e "${BLUE}Stage Timing Breakdown:${NC}" | tee -a "$LOG_FILE"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" | tee -a "$LOG_FILE"
+    
+    # Find longest stage name for formatting
+    local max_length=0
+    for i in "${!STAGE_NAMES[@]}"; do
+        local len=${#STAGE_NAMES[$i]}
+        if [ $len -gt $max_length ]; then
+            max_length=$len
+        fi
+    done
+    
+    # Print each stage with timing
+    for i in $(seq 1 $CURRENT_STAGE); do
+        if [ ! -z "${STAGE_NAMES[$i]}" ]; then
+            local duration=${STAGE_DURATIONS[$i]}
+            if [ ! -z "$duration" ]; then
+                local percentage=$((duration * 100 / total_time))
+                local mins=$((duration / 60))
+                local secs=$((duration % 60))
+                printf "  Stage %d: %-${max_length}s : %3dm %2ds (%2d%%)\n" \
+                    "$i" "${STAGE_NAMES[$i]}" "$mins" "$secs" "$percentage" | tee -a "$LOG_FILE"
+            fi
+        fi
+    done
+    
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" | tee -a "$LOG_FILE"
+    
+    local total_mins=$((total_time / 60))
+    local total_secs=$((total_time % 60))
+    echo -e "${GREEN}Total Setup Time: ${total_mins} minutes ${total_secs} seconds${NC}" | tee -a "$LOG_FILE"
+    
+    # Performance analysis
+    echo "" | tee -a "$LOG_FILE"
+    echo -e "${BLUE}Performance Analysis:${NC}" | tee -a "$LOG_FILE"
+    
+    # Find slowest stage
+    local slowest_stage=0
+    local slowest_time=0
+    for i in $(seq 1 $CURRENT_STAGE); do
+        local duration=${STAGE_DURATIONS[$i]}
+        if [ ! -z "$duration" ] && [ $duration -gt $slowest_time ]; then
+            slowest_time=$duration
+            slowest_stage=$i
+        fi
+    done
+    
+    if [ $slowest_stage -gt 0 ]; then
+        echo -e "  🐌 Slowest stage: Stage $slowest_stage - ${STAGE_NAMES[$slowest_stage]} (${slowest_time}s)" | tee -a "$LOG_FILE"
+    fi
+    
+    # Calculate average stage time
+    local avg_time=$((total_time / CURRENT_STAGE))
+    echo -e "  📊 Average stage time: ${avg_time} seconds" | tee -a "$LOG_FILE"
+    
+    echo "" | tee -a "$LOG_FILE"
+}
 
 # Function to print colored output
 print_status() {
@@ -68,7 +165,7 @@ EOF
 
 # Check Docker installation
 check_docker() {
-    print_step "Step 1: Checking Docker"
+    start_stage 1 "Checking Docker"
     
     if ! command -v docker &> /dev/null; then
         print_warning "Docker not found. Installing Docker Desktop..."
@@ -118,11 +215,12 @@ check_docker() {
         print_error "Failed to start Docker. Please start Docker Desktop manually and run again."
         exit 1
     fi
+    end_stage 1
 }
 
 # Check required tools
 check_prerequisites() {
-    print_step "Step 2: Checking Prerequisites"
+    start_stage 2 "Checking Prerequisites"
     
     local missing_tools=()
     
@@ -166,7 +264,7 @@ check_prerequisites() {
 
 # Clone repositories if needed
 clone_repositories() {
-    print_step "Step 3: Setting up Legion Repositories"
+    start_stage 3 "Setting up Legion Repositories"
     
     LEGION_DIR="$HOME/Development/legion/code"
     mkdir -p "$LEGION_DIR"
@@ -206,7 +304,7 @@ clone_repositories() {
 
 # Setup Docker environment
 setup_docker_environment() {
-    print_step "Step 4: Setting up Docker Environment"
+    start_stage 4 "Setting up Docker Environment"
     
     cd "$DOCKER_DIR"
     
@@ -247,6 +345,15 @@ setup_docker_environment() {
     # Priority 1: Check if locally built image exists
     if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "legion-mysql:latest"; then
         print_success "✓ Found locally built Legion MySQL image"
+        
+        # IMPORTANT: If using a freshly built MySQL image, remove old volume data
+        if docker volume ls | grep -q "docker_mysql-data"; then
+            print_warning "Found existing MySQL data volume"
+            print_status "Removing old MySQL volume to use fresh data from image..."
+            docker-compose down mysql 2>/dev/null || true
+            docker volume rm docker_mysql-data 2>/dev/null || true
+            print_success "Old MySQL volume removed - will use fresh data from image"
+        fi
         # Update docker-compose to use local image
         sed -i.bak 's|image: mysql:8.0|image: legion-mysql:latest|' docker-compose.yml
         sed -i.bak 's|image: legiontech.jfrog.io/docker-local/legion-mysql:latest|image: legion-mysql:latest|' docker-compose.yml
@@ -367,7 +474,7 @@ setup_docker_environment() {
 
 # Setup development tools
 setup_dev_tools() {
-    print_step "Step 5: Installing Development Tools"
+    start_stage 5 "Installing Development Tools"
     
     # Check for Homebrew on macOS
     if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -589,14 +696,35 @@ setup_dev_tools() {
 
 # Build and verify setup
 verify_setup() {
-    print_step "Step 6: Verifying Setup"
+    start_stage 6 "Verifying Setup"
     
     LEGION_DIR="$HOME/Development/legion/code"
     
-    # Test Maven build
-    print_status "Testing Maven build..."
+    # Build Maven project using run-backend script
+    print_status "Building Maven project..."
     cd "$LEGION_DIR/enterprise"
-    if mvn clean install -P dev -DskipTests -Dcheckstyle.skip -Djavax.net.ssl.trustStorePassword=changeit -Dflyway.skip=true; then
+    
+    # First ensure Lombok annotation processing is configured
+    print_status "Checking Lombok configuration..."
+    if ! grep -q "annotationProcessorPaths" pom.xml; then
+        print_status "Adding Lombok annotation processor configuration..."
+        # Add the annotation processor configuration to maven-compiler-plugin
+        sed -i.bak '/<artifactId>maven-compiler-plugin<\/artifactId>/,/<\/plugin>/ {
+            /<configuration>/a\
+                        <annotationProcessorPaths>\
+                            <path>\
+                                <groupId>org.projectlombok</groupId>\
+                                <artifactId>lombok</artifactId>\
+                                <version>1.18.38</version>\
+                            </path>\
+                        </annotationProcessorPaths>
+        }' pom.xml
+        print_success "Lombok configuration added"
+    fi
+    
+    # Use run-backend.sh script to build (it handles all the Maven flags properly)
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if "$SCRIPT_DIR/scripts/run-backend.sh" --build-only; then
         print_success "Maven build successful"
     else
         print_warning "Maven build failed - please check logs"
@@ -640,10 +768,11 @@ show_next_steps() {
 🚀 TO START DEVELOPMENT:
 
    1. Backend (Enterprise):
+      # Option A: Use the run script (recommended)
+      ./scripts/run-backend.sh
+      
+      # Option B: Use Maven spring-boot:run
       cd ~/Development/legion/code/enterprise
-      # First time only: compile the app module
-      mvn clean compile -pl app -am -DskipTests -Dcheckstyle.skip -Dflyway.skip=true
-      # Then run:
       mvn spring-boot:run -pl app -Dspring.profiles.active=local
       
    2. Frontend (Console-UI):
@@ -712,6 +841,9 @@ main() {
     
     # Show completion
     show_next_steps
+    
+    # Print metrics summary
+    print_setup_metrics
 }
 
 # Run main function
