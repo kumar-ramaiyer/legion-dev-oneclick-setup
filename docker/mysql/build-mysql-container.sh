@@ -71,18 +71,22 @@ end_step 1
 # Step 2: Validate database dumps
 start_step 2 "Validating database dumps"
 
-# Check for DBDUMPS_FOLDER environment variable
+# Check for DBDUMPS_FOLDER environment variable or ask for it
 if [ -z "$DBDUMPS_FOLDER" ]; then
-    echo -e "${YELLOW}DBDUMPS_FOLDER environment variable not set${NC}"
-    echo "Please provide it:"
-    echo ""
-    echo "  DBDUMPS_FOLDER=/path/to/dbdumps ./build-mysql-container.sh"
-    echo ""
-    exit 1
+    echo -e "${YELLOW}Please enter the path to your dbdumps folder:${NC}"
+    echo "Default: /Users/kumar.ramaiyer/work/dbdumps"
+    read -p "Path (or press Enter for default): " user_input
+    
+    if [ -z "$user_input" ]; then
+        DBDUMPS_FOLDER="/Users/kumar.ramaiyer/work/dbdumps"
+    else
+        DBDUMPS_FOLDER="$user_input"
+    fi
 fi
 
 # Expand tilde if present
 DBDUMPS_FOLDER="${DBDUMPS_FOLDER/#\~/$HOME}"
+echo "Using dbdumps folder: $DBDUMPS_FOLDER"
 
 if [ ! -d "$DBDUMPS_FOLDER" ]; then
     echo -e "${RED}Database dumps folder not found: $DBDUMPS_FOLDER${NC}"
