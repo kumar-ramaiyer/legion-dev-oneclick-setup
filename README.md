@@ -16,10 +16,10 @@ cd docker/mysql
 DBDUMPS_FOLDER="/path/to/dbdumps" ./build-mysql-container.sh
 cd ../..
 
-# Run setup - builds backend, frontend, and starts all services
+# Run setup - builds BOTH backend and frontend, starts all Docker services
 ./setup.sh
 
-# After setup completes, just run the applications:
+# After setup completes, everything is built! Just run the applications:
 # Backend: ./scripts/build-and-run.sh run-backend
 # Frontend: ./scripts/build-and-run.sh run-frontend
 ```
@@ -58,9 +58,10 @@ Access everything via HTTPS:
 
 ## ⚡ Key Benefits
 
-- **FULLY AUTOMATED**: Setup builds backend, frontend, and configures everything
-- **COMPLETE SETUP**: ~45-50 minutes total (30 min MySQL build + 15-20 min setup)
+- **FULLY AUTOMATED**: Setup builds BOTH backend AND frontend automatically
+- **COMPLETE SETUP**: ~45-50 minutes total (30 min MySQL build + 15-20 min setup with builds)
 - **PRE-BUILT MySQL**: 913 tables in legiondb, 840 in legiondb0 ready to use
+- **APPLICATIONS BUILT**: Backend JAR and frontend bundles ready after setup
 - **HTTPS READY**: Access via `https://legion.local` with valid certificates
 - **PRODUCTION-LIKE**: Same Docker services as production
 - **IDEMPOTENT**: Scripts are robust and can be run multiple times safely
@@ -85,11 +86,11 @@ Everything else is installed automatically!
 2. **Clones Repositories** - Enterprise and Console-UI from GitHub
 3. **Starts Docker Services** - MySQL with full data, Redis, Elasticsearch, etc.
 4. **Configures HTTPS** - SSL certificates and domain routing
-5. **Builds Backend** - Complete Maven build with all modules
-6. **Builds Frontend** - Yarn install, lerna bootstrap, and build
+5. **Builds Backend** - Complete Maven build with all modules (~10 mins)
+6. **Builds Frontend** - Yarn install, lerna bootstrap, and full build (~5 mins)
 7. **Verifies Everything** - Ensures all services are running and ready
 
-No prompts, no decisions - fully automated!
+No prompts, no decisions - fully automated! After setup, both applications are fully built and ready to run.
 
 ## 🛠️ Architecture
 
@@ -158,7 +159,7 @@ legion-dev-oneclick-setup/
 
 ## 🚀 Starting Development
 
-After setup completes, everything is built and ready to run:
+After setup completes, both backend and frontend are ALREADY BUILT. You just need to run them:
 
 ### Backend (Enterprise)
 ```bash
