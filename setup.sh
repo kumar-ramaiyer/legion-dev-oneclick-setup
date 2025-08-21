@@ -790,11 +790,11 @@ show_next_steps() {
 
    1. Start Backend:
       cd legion-dev-oneclick-setup
-      ./scripts/run-backend.sh
+      ./scripts/build-and-run.sh run-backend
       
    2. Start Frontend:
-      cd ~/Development/legion/code/console-ui
-      yarn start
+      cd legion-dev-oneclick-setup
+      ./scripts/build-and-run.sh run-frontend
       
    3. Access the application:
       https://legion.local
