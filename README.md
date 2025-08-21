@@ -20,8 +20,8 @@ cd ../..
 ./setup.sh
 
 # After setup completes, just run the applications:
-# Backend: ./scripts/run-backend.sh
-# Frontend: cd ~/Development/legion/code/console-ui && yarn start
+# Backend: ./scripts/build-and-run.sh run-backend
+# Frontend: ./scripts/build-and-run.sh run-frontend
 ```
 
 ## 🐳 What Gets Set Up
@@ -163,15 +163,27 @@ After setup completes, everything is built and ready to run:
 ### Backend (Enterprise)
 ```bash
 cd ~/work/legion-dev-oneclick-setup
-./scripts/run-backend.sh
+./scripts/build-and-run.sh run-backend
 # API available at http://localhost:8080
 ```
 
 ### Frontend (Console-UI)
 ```bash
-cd ~/Development/legion/code/console-ui
-yarn start
+cd ~/work/legion-dev-oneclick-setup
+./scripts/build-and-run.sh run-frontend
 # UI available at http://localhost:3000
+```
+
+### Build Commands
+```bash
+# Build everything
+./scripts/build-and-run.sh build-all
+
+# Build only backend
+./scripts/build-and-run.sh build-backend
+
+# Build only frontend
+./scripts/build-and-run.sh build-frontend
 ```
 
 ### Access Points
@@ -265,7 +277,7 @@ cd ..
 - 🚀 Complete automation: builds backend and frontend
 - 🔨 Idempotent scripts: safe to run multiple times  
 - 🐳 Automatic MySQL container deployment
-- 📦 Smart build system with run-backend.sh
+- 📦 Unified build system with build-and-run.sh for both backend and frontend
 - 🔄 Lerna bootstrap for frontend packages
 - ⚡ 15-20 minute total setup with builds
 
