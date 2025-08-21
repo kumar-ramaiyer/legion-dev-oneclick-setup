@@ -11,6 +11,11 @@ Enterprise-grade automated setup with Docker containerization, full build automa
 git clone https://github.com/legionco/legion-dev-oneclick-setup.git
 cd legion-dev-oneclick-setup
 
+# Build MySQL container with full database (one-time, ~30 mins)
+cd docker/mysql
+DBDUMPS_FOLDER="/path/to/dbdumps" ./build-mysql-container.sh
+cd ../..
+
 # Run setup - builds backend, frontend, and starts all services
 ./setup.sh
 
@@ -54,7 +59,7 @@ Access everything via HTTPS:
 ## ⚡ Key Benefits
 
 - **FULLY AUTOMATED**: Setup builds backend, frontend, and configures everything
-- **15-20 MINUTES**: Complete setup including Maven and Yarn builds
+- **COMPLETE SETUP**: ~45-50 minutes total (30 min MySQL build + 15-20 min setup)
 - **PRE-BUILT MySQL**: 913 tables in legiondb, 840 in legiondb0 ready to use
 - **HTTPS READY**: Access via `https://legion.local` with valid certificates
 - **PRODUCTION-LIKE**: Same Docker services as production
@@ -67,6 +72,10 @@ Access everything via HTTPS:
 - **Disk Space**: 30GB available
 - **Network**: Internet access
 - **Permissions**: sudo access (for /etc/hosts and tool installation)
+- **Database Dumps**: Required for MySQL container (get from team)
+  - `legiondb.sql.zip` (5.6GB)
+  - `legiondb0.sql.zip` (306MB)
+  - `storedprocedures.sql` (67KB)
 
 Everything else is installed automatically!
 
