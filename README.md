@@ -163,14 +163,14 @@ After setup completes, both backend and frontend are ALREADY BUILT. You just nee
 
 ### Backend (Enterprise)
 ```bash
-cd ~/work/legion-dev-oneclick-setup
+cd legion-dev-oneclick-setup
 ./scripts/build-and-run.sh run-backend
 # API available at http://localhost:8080
 ```
 
 ### Frontend (Console-UI)
 ```bash
-cd ~/work/legion-dev-oneclick-setup
+cd legion-dev-oneclick-setup
 ./scripts/build-and-run.sh run-frontend
 # UI available at http://localhost:3000
 ```
@@ -236,8 +236,8 @@ yarn build
 ### MySQL Missing Tables?
 ```bash
 # Rebuild MySQL container with full data:
-cd ~/work/legion-dev-oneclick-setup/docker/mysql
-DBDUMPS_FOLDER="/Users/kumar.ramaiyer/work/dbdumps" ./build-mysql-container.sh
+cd docker/mysql
+DBDUMPS_FOLDER="~/work/dbdumps" ./build-mysql-container.sh
 ```
 
 ### Port Conflicts?
@@ -250,7 +250,7 @@ lsof -i :3000  # Frontend
 
 ### Reset Everything?
 ```bash
-cd ~/work/legion-dev-oneclick-setup/docker
+cd docker
 docker-compose down -v  # Remove all containers and volumes
 cd ..
 ./setup.sh  # Run setup again

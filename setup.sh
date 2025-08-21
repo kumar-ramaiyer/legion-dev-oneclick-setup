@@ -789,7 +789,7 @@ show_next_steps() {
 🚀 TO START THE APPLICATION:
 
    1. Start Backend:
-      cd ~/work/legion-dev-oneclick-setup
+      cd legion-dev-oneclick-setup
       ./scripts/run-backend.sh
       
    2. Start Frontend:

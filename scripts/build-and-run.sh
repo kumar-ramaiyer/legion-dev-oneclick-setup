@@ -196,7 +196,7 @@ run_backend() {
         echo -e "${GREEN}✓ MySQL is running and accessible${NC}"
     else
         echo -e "${RED}✗ MySQL is not accessible. Please ensure Docker containers are running.${NC}"
-        echo "Run: cd ~/work/legion-dev-oneclick-setup/docker && docker-compose up -d"
+        echo "Run: cd docker && docker-compose up -d"
         exit 1
     fi
     
