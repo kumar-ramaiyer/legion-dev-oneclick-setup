@@ -73,9 +73,20 @@ start_step 2 "Validating database dumps"
 
 # Check for DBDUMPS_FOLDER environment variable or ask for it
 if [ -z "$DBDUMPS_FOLDER" ]; then
-    echo -e "${YELLOW}Please enter the path to your dbdumps folder:${NC}"
-    echo "Default: /Users/kumar.ramaiyer/work/dbdumps"
-    read -p "Path (or press Enter for default): " user_input
+    echo -e "${YELLOW}Database dumps folder required!${NC}"
+    echo ""
+    echo "This folder should contain:"
+    echo "  • legiondb.sql.zip (5.6GB) - Main database with 913 tables"
+    echo "  • legiondb0.sql.zip (306MB) - System database with 840 tables"  
+    echo "  • storedprocedures.sql (67KB) - Stored procedures and functions"
+    echo ""
+    echo "To set up:"
+    echo "  1. Create folder: mkdir -p ~/work/dbdumps"
+    echo "  2. Get files from team (check Slack or Google Drive)"
+    echo "  3. Place all three files in the folder"
+    echo ""
+    echo -e "${BLUE}Default path: /Users/kumar.ramaiyer/work/dbdumps${NC}"
+    read -p "Enter path (or press Enter for default): " user_input
     
     if [ -z "$user_input" ]; then
         DBDUMPS_FOLDER="/Users/kumar.ramaiyer/work/dbdumps"
