@@ -728,43 +728,29 @@ verify_setup() {
         print_success "Lombok configuration added"
     fi
     
-    # Use run-backend.sh script to build (it handles all the Maven flags properly)
-    # Use the SCRIPT_DIR that was set at the beginning of this file
-    RUN_BACKEND_SCRIPT="$SCRIPT_DIR/scripts/run-backend.sh"
+    # Use build-and-run.sh script to build backend
+    BUILD_SCRIPT="$SCRIPT_DIR/scripts/build-and-run.sh"
     
-    print_status "Using run-backend.sh from: $RUN_BACKEND_SCRIPT"
+    print_status "Using build-and-run.sh from: $BUILD_SCRIPT"
     
-    if [ ! -f "$RUN_BACKEND_SCRIPT" ]; then
-        print_error "run-backend.sh not found at $RUN_BACKEND_SCRIPT"
-        print_warning "Cannot build backend without the run script"
+    if [ ! -f "$BUILD_SCRIPT" ]; then
+        print_error "build-and-run.sh not found at $BUILD_SCRIPT"
+        print_warning "Cannot build without the build script"
         return 1
     fi
     
-    if "$RUN_BACKEND_SCRIPT" --build-only; then
-        print_success "Maven build successful"
+    if "$BUILD_SCRIPT" build-backend; then
+        print_success "Backend build successful"
     else
-        print_warning "Maven build failed - please check logs"
+        print_warning "Backend build failed - please check logs"
     fi
     
-    # Build frontend
+    # Build frontend using build-and-run.sh
     print_status "Building frontend (Console-UI)..."
-    cd "$LEGION_DIR/console-ui"
-    if [ -f "package.json" ]; then
-        print_status "Installing frontend dependencies..."
-        yarn install || npm install
-        print_success "Frontend dependencies installed"
-        
-        print_status "Running lerna bootstrap to install all package dependencies..."
-        npx lerna bootstrap || yarn lerna bootstrap
-        print_success "Lerna bootstrap complete"
-        
-        print_status "Building frontend application..."
-        yarn build || npm run build
-        if [ $? -eq 0 ]; then
-            print_success "Frontend build complete"
-        else
-            print_warning "Frontend build failed - this is okay, you can build it later with 'yarn build'"
-        fi
+    if "$BUILD_SCRIPT" build-frontend; then
+        print_success "Frontend build successful"
+    else
+        print_warning "Frontend build failed - this is okay, you can retry later with './scripts/build-and-run.sh build-frontend'"
     fi
     
     # Show service status

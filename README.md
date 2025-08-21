@@ -11,12 +11,17 @@ Enterprise-grade automated setup with Docker containerization, full build automa
 git clone https://github.com/legionco/legion-dev-oneclick-setup.git
 cd legion-dev-oneclick-setup
 
-# Run setup - builds backend, frontend, and starts all services
+# Build MySQL container with full database (one-time, ~30 mins)
+cd docker/mysql
+DBDUMPS_FOLDER="/path/to/dbdumps" ./build-mysql-container.sh
+cd ../..
+
+# Run setup - builds BOTH backend and frontend, starts all Docker services
 ./setup.sh
 
-# After setup completes, just run the applications:
-# Backend: ./scripts/run-backend.sh
-# Frontend: cd ~/Development/legion/code/console-ui && yarn start
+# After setup completes, everything is built! Just run the applications:
+# Backend: ./scripts/build-and-run.sh run-backend
+# Frontend: ./scripts/build-and-run.sh run-frontend
 ```
 
 ## 🐳 What Gets Set Up
@@ -53,9 +58,10 @@ Access everything via HTTPS:
 
 ## ⚡ Key Benefits
 
-- **FULLY AUTOMATED**: Setup builds backend, frontend, and configures everything
-- **15-20 MINUTES**: Complete setup including Maven and Yarn builds
+- **FULLY AUTOMATED**: Setup builds BOTH backend AND frontend automatically
+- **COMPLETE SETUP**: ~45-50 minutes total (30 min MySQL build + 15-20 min setup with builds)
 - **PRE-BUILT MySQL**: 913 tables in legiondb, 840 in legiondb0 ready to use
+- **APPLICATIONS BUILT**: Backend JAR and frontend bundles ready after setup
 - **HTTPS READY**: Access via `https://legion.local` with valid certificates
 - **PRODUCTION-LIKE**: Same Docker services as production
 - **IDEMPOTENT**: Scripts are robust and can be run multiple times safely
@@ -67,6 +73,10 @@ Access everything via HTTPS:
 - **Disk Space**: 30GB available
 - **Network**: Internet access
 - **Permissions**: sudo access (for /etc/hosts and tool installation)
+- **Database Dumps**: Required for MySQL container (get from team)
+  - `legiondb.sql.zip` (5.6GB)
+  - `legiondb0.sql.zip` (306MB)
+  - `storedprocedures.sql` (67KB)
 
 Everything else is installed automatically!
 
@@ -76,11 +86,11 @@ Everything else is installed automatically!
 2. **Clones Repositories** - Enterprise and Console-UI from GitHub
 3. **Starts Docker Services** - MySQL with full data, Redis, Elasticsearch, etc.
 4. **Configures HTTPS** - SSL certificates and domain routing
-5. **Builds Backend** - Complete Maven build with all modules
-6. **Builds Frontend** - Yarn install, lerna bootstrap, and build
+5. **Builds Backend** - Complete Maven build with all modules (~10 mins)
+6. **Builds Frontend** - Yarn install, lerna bootstrap, and full build (~5 mins)
 7. **Verifies Everything** - Ensures all services are running and ready
 
-No prompts, no decisions - fully automated!
+No prompts, no decisions - fully automated! After setup, both applications are fully built and ready to run.
 
 ## 🛠️ Architecture
 
@@ -149,20 +159,32 @@ legion-dev-oneclick-setup/
 
 ## 🚀 Starting Development
 
-After setup completes, everything is built and ready to run:
+After setup completes, both backend and frontend are ALREADY BUILT. You just need to run them:
 
 ### Backend (Enterprise)
 ```bash
 cd ~/work/legion-dev-oneclick-setup
-./scripts/run-backend.sh
+./scripts/build-and-run.sh run-backend
 # API available at http://localhost:8080
 ```
 
 ### Frontend (Console-UI)
 ```bash
-cd ~/Development/legion/code/console-ui
-yarn start
+cd ~/work/legion-dev-oneclick-setup
+./scripts/build-and-run.sh run-frontend
 # UI available at http://localhost:3000
+```
+
+### Build Commands
+```bash
+# Build everything
+./scripts/build-and-run.sh build-all
+
+# Build only backend
+./scripts/build-and-run.sh build-backend
+
+# Build only frontend
+./scripts/build-and-run.sh build-frontend
 ```
 
 ### Access Points
@@ -256,7 +278,7 @@ cd ..
 - 🚀 Complete automation: builds backend and frontend
 - 🔨 Idempotent scripts: safe to run multiple times  
 - 🐳 Automatic MySQL container deployment
-- 📦 Smart build system with run-backend.sh
+- 📦 Unified build system with build-and-run.sh for both backend and frontend
 - 🔄 Lerna bootstrap for frontend packages
 - ⚡ 15-20 minute total setup with builds
 
