@@ -462,7 +462,7 @@ mysql -uroot -pmysql123 << 'SQL' 2>&1
 CREATE TABLE IF NOT EXISTS legiondb.EnterpriseSchema (
     id bigint not null auto_increment,
     objectId varchar(36),
-    active bit not null default 0,
+    active bit not null default 1,
     createdBy varchar(50),
     createdDate datetime(6) default CURRENT_TIMESTAMP(6),
     lastModifiedBy varchar(50),
@@ -478,7 +478,7 @@ CREATE TABLE IF NOT EXISTS legiondb.EnterpriseSchema (
 CREATE TABLE IF NOT EXISTS legiondb0.EnterpriseSchema (
     id bigint not null auto_increment,
     objectId varchar(36),
-    active bit not null default 0,
+    active bit not null default 1,
     createdBy varchar(50),
     createdDate datetime(6) default CURRENT_TIMESTAMP(6),
     lastModifiedBy varchar(50),
@@ -492,9 +492,9 @@ CREATE TABLE IF NOT EXISTS legiondb0.EnterpriseSchema (
 ) engine=InnoDB;
 
 -- Insert default enterprise mapping for local development
-INSERT IGNORE INTO legiondb0.EnterpriseSchema (enterpriseId, schemaKey) VALUES 
-('1', 'default'),
-('1', 'legiondb0');
+INSERT IGNORE INTO legiondb0.EnterpriseSchema (enterpriseId, schemaKey, active) VALUES 
+('1', 'default', 1),
+('1', 'legiondb0', 1);
 
 -- Copy any existing data from legiondb to legiondb0
 INSERT IGNORE INTO legiondb0.EnterpriseSchema 
