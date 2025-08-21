@@ -48,7 +48,7 @@ if [ ! -f "$ENTERPRISE_ROOT/config/target/resources/local/application.yml" ]; th
     echo -e "${YELLOW}Warning: application.yml not found${NC}"
     echo "Building configuration files..."
     cd "$ENTERPRISE_ROOT"
-    mvn clean compile -P dev -pl config
+    mvn clean compile -P dev -pl config -Dflyway.skip=true
 fi
 
 # Build the application

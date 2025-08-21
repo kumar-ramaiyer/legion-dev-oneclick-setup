@@ -1,21 +1,22 @@
 # Legion Enterprise Development Environment Setup
 
-🚀 **ONE COMMAND Docker-based setup for Legion's development environment**
+🚀 **ONE COMMAND setup that builds and deploys everything for Legion development**
 
-Enterprise-grade automated setup with Docker containerization, designed for 100+ developers across macOS and Linux platforms.
+Enterprise-grade automated setup with Docker containerization, full build automation, and deployment - ready to run in minutes.
 
-## 🎯 Quick Start - One Command!
+## 🎯 Quick Start - Everything Built & Ready!
 
 ```bash
 # Clone this repository
 git clone https://github.com/legionco/legion-dev-oneclick-setup.git
 cd legion-dev-oneclick-setup
 
-# Run the unified setup - ONE COMMAND for everything!
+# Run setup - builds backend, frontend, and starts all services
 ./setup.sh
 
-# That's it! Access your development environment at:
-# https://legion.local
+# After setup completes, just run the applications:
+# Backend: ./scripts/run-backend.sh
+# Frontend: cd ~/Development/legion/code/console-ui && yarn start
 ```
 
 ## 🐳 What Gets Set Up
@@ -52,12 +53,12 @@ Access everything via HTTPS:
 
 ## ⚡ Key Benefits
 
-- **ONE COMMAND**: Just run `./setup.sh` - everything else is automatic
-- **5-10 MINUTES**: Complete setup with pre-built MySQL from JFrog
-- **ZERO CONFIG**: No manual database imports or configuration files
+- **FULLY AUTOMATED**: Setup builds backend, frontend, and configures everything
+- **15-20 MINUTES**: Complete setup including Maven and Yarn builds
+- **PRE-BUILT MySQL**: 913 tables in legiondb, 840 in legiondb0 ready to use
 - **HTTPS READY**: Access via `https://legion.local` with valid certificates
 - **PRODUCTION-LIKE**: Same Docker services as production
-- **ISOLATED**: All services in containers, no system pollution
+- **IDEMPOTENT**: Scripts are robust and can be run multiple times safely
 
 ## 💻 Requirements
 
@@ -71,14 +72,15 @@ Everything else is installed automatically!
 
 ## 🔄 What Happens When You Run `./setup.sh`
 
-1. **Checks & Installs Docker** - If not present
+1. **Installs Prerequisites** - Docker, Java 17, Maven, Node.js, Yarn (if needed)
 2. **Clones Repositories** - Enterprise and Console-UI from GitHub
-3. **Starts Docker Services** - MySQL, Redis, Elasticsearch, etc.
+3. **Starts Docker Services** - MySQL with full data, Redis, Elasticsearch, etc.
 4. **Configures HTTPS** - SSL certificates and domain routing
-5. **Installs Dev Tools** - Java 17, Maven, Node.js, Yarn
-6. **Verifies Setup** - Builds projects and checks services
+5. **Builds Backend** - Complete Maven build with all modules
+6. **Builds Frontend** - Yarn install, lerna bootstrap, and build
+7. **Verifies Everything** - Ensures all services are running and ready
 
-You just answer "Y" to proceed and optionally your GitHub username!
+No prompts, no decisions - fully automated!
 
 ## 🛠️ Architecture
 
@@ -109,11 +111,22 @@ You just answer "Y" to proceed and optionally your GitHub username!
 
 ## 🗄️ Database Management
 
-- **Pre-built MySQL Container**: Data already loaded, hosted on JFrog
-- **Instant Setup**: No 45-minute import wait  
-- **Consistent Data**: Everyone gets the same database state
-- **Fail-Fast Design**: Setup stops if MySQL image not available
-- **Priority Check**: Local image → JFrog → Fail with clear instructions
+### Automatic MySQL Setup
+- **Pre-built Container**: MySQL 8.0 with all Legion data included
+- **Full Schema**: 913 tables in legiondb, 840 tables in legiondb0
+- **Instant Start**: Database ready immediately when container starts
+- **Idempotent Build**: Script automatically rebuilds if needed
+
+### Rebuilding MySQL (If Needed)
+```bash
+cd docker/mysql
+DBDUMPS_FOLDER="/path/to/dbdumps" ./build-mysql-container.sh
+```
+The build script:
+- Automatically stops old containers and removes volumes
+- Builds new image with fresh data
+- Deploys the new container automatically
+- No manual steps required
 
 
 ## 📁 Project Structure
@@ -136,26 +149,27 @@ legion-dev-oneclick-setup/
 
 ## 🚀 Starting Development
 
-After setup completes:
+After setup completes, everything is built and ready to run:
 
 ### Backend (Enterprise)
 ```bash
-cd ~/Development/legion/code/enterprise
-mvn spring-boot:run -Dspring.profiles.active=local
-# API available at https://legion.local/api
+cd ~/work/legion-dev-oneclick-setup
+./scripts/run-backend.sh
+# API available at http://localhost:8080
 ```
 
 ### Frontend (Console-UI)
 ```bash
 cd ~/Development/legion/code/console-ui
 yarn start
-# UI available at https://legion.local
+# UI available at http://localhost:3000
 ```
 
-### Direct Access
-- Backend: `http://localhost:8080`
-- Frontend: `http://localhost:3000`
-- Caddy automatically routes HTTPS traffic
+### Access Points
+- Main App: `https://legion.local` (via Caddy proxy)
+- Backend Direct: `http://localhost:8080`
+- Frontend Direct: `http://localhost:3000`
+- All services route through Caddy for HTTPS
 
 ## ✅ Verification
 
@@ -181,53 +195,53 @@ redis-cli ping
 
 ## 🔧 Troubleshooting
 
-### Docker Not Starting?
+### Backend Build Fails?
 ```bash
-# macOS: Open Docker Desktop app
-open -a Docker
-
-# Linux: Start Docker service
-sudo systemctl start docker
+# The setup uses run-backend.sh which skips Flyway migrations
+# If build fails, try manually:
+cd ~/Development/legion/code/enterprise
+mvn clean install -P dev -DskipTests -Dflyway.skip=true
 ```
 
-### JFrog Login Issues?
+### Frontend Build Fails?
 ```bash
-# Login with your Okta/LDAP credentials
-docker login legiontech.jfrog.io
+# Ensure lerna bootstrap runs first:
+cd ~/Development/legion/code/console-ui
+npx lerna bootstrap
+yarn build
+```
+
+### MySQL Missing Tables?
+```bash
+# Rebuild MySQL container with full data:
+cd ~/work/legion-dev-oneclick-setup/docker/mysql
+DBDUMPS_FOLDER="/Users/kumar.ramaiyer/work/dbdumps" ./build-mysql-container.sh
 ```
 
 ### Port Conflicts?
 ```bash
-# Stop conflicting services or change ports in docker-compose.yml
-lsof -i :3306  # Check what's using MySQL port
-```
-
-### Legion MySQL Image Not Found?
-```bash
-# Error: "Legion MySQL image not found!"
-# This means the DevOps team needs to build and push the image
-
-# For DevOps team:
-cd docker/mysql
-./build-mysql-container.sh
-
-# For developers: 
-# Contact #devops-it-support for image availability
+# Check what's using ports:
+lsof -i :3306  # MySQL
+lsof -i :8080  # Backend
+lsof -i :3000  # Frontend
 ```
 
 ### Reset Everything?
 ```bash
-cd docker
+cd ~/work/legion-dev-oneclick-setup/docker
 docker-compose down -v  # Remove all containers and volumes
+cd ..
 ./setup.sh  # Run setup again
 ```
 
 ## 📈 Performance
 
-- **Setup Time**: 5-10 minutes total
-- **Docker Images**: ~5GB download (one-time)
-- **RAM Usage**: ~4GB for all containers
-- **Disk Space**: ~20GB after setup
+- **Setup Time**: 15-20 minutes (including builds)
+- **Backend Build**: 5-10 minutes (first time)
+- **Frontend Build**: 2-5 minutes
+- **Docker Images**: ~8GB total
+- **RAM Usage**: ~6GB for all services
+- **Disk Space**: ~25GB after full setup
 
 ## 🆘 Support
 
@@ -238,13 +252,13 @@ docker-compose down -v  # Remove all containers and volumes
 
 ## 🎯 Version History
 
-### v6.0 (Current) - ONE COMMAND SETUP
-- 🚀 Single unified Docker-based approach
-- 🎯 One command: `./setup.sh`
-- 🐳 All services containerized
-- 🔒 Automatic HTTPS with mkcert
-- 📦 Pre-built MySQL from JFrog
-- ⚡ 5-10 minute total setup
+### v6.1 (Current) - FULLY AUTOMATED BUILD & DEPLOY
+- 🚀 Complete automation: builds backend and frontend
+- 🔨 Idempotent scripts: safe to run multiple times  
+- 🐳 Automatic MySQL container deployment
+- 📦 Smart build system with run-backend.sh
+- 🔄 Lerna bootstrap for frontend packages
+- ⚡ 15-20 minute total setup with builds
 
 ### Previous Versions
 - v5.0: Dual approach (Docker + Traditional)

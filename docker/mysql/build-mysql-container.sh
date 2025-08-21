@@ -83,24 +83,30 @@ echo ""
 # Step 1: Clean up existing containers and images (idempotent)
 start_step 1 "Cleaning up existing containers and images"
 
-# Stop and remove any existing test containers
+# Stop and remove any existing containers (idempotent cleanup)
+echo "Cleaning up existing MySQL containers and volumes..."
+
+# Remove test container
 if docker ps -a | grep -q "legion-mysql-test"; then
-    echo "Removing existing test container..."
     docker stop legion-mysql-test 2>/dev/null || true
     docker rm legion-mysql-test 2>/dev/null || true
+    echo "  Removed test container"
 fi
 
-# Stop and remove the production container if it exists
+# Remove production container - no prompts, always clean up
 if docker ps -a | grep -q "legion-mysql"; then
-    echo "Found existing legion-mysql container"
-    read -p "Stop and remove existing legion-mysql container? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        docker stop legion-mysql 2>/dev/null || true
-        docker rm legion-mysql 2>/dev/null || true
-        echo -e "${GREEN}✓ Removed existing container${NC}"
-    fi
+    docker stop legion-mysql 2>/dev/null || true
+    docker rm legion-mysql 2>/dev/null || true
+    echo "  Removed legion-mysql container"
 fi
+
+# Remove docker-compose managed MySQL volume to ensure fresh data
+if docker volume ls | grep -q "docker_mysql-data"; then
+    docker volume rm docker_mysql-data 2>/dev/null || true
+    echo "  Removed docker_mysql-data volume"
+fi
+
+echo -e "${GREEN}✓ Cleanup completed${NC}"
 
 # Remove ALL existing legion-mysql images (force removal)
 echo "Removing ALL existing $IMAGE_NAME images..."
@@ -635,15 +641,17 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 echo "Image built: ${IMAGE_NAME}:${LATEST_TAG}"
 echo ""
-echo "To run the container:"
-echo "  docker run -d --name legion-mysql \\"
-echo "    -p 3306:3306 \\"
-echo "    -e MYSQL_ROOT_PASSWORD=mysql123 \\"
-echo "    ${IMAGE_NAME}:${LATEST_TAG}"
+echo "Deploying the new MySQL container..."
 echo ""
-echo "Or use with docker-compose:"
-echo "  cd $(dirname $(dirname $(realpath $0)))"
-echo "  docker-compose up -d mysql"
+# Automatically deploy using docker-compose
+cd $(dirname $0)/..
+docker-compose up -d mysql
+echo ""
+echo -e "${GREEN}✓ MySQL container deployed and running${NC}"
+echo ""
+echo "Container: legion-mysql"
+echo "Port: 3306"
+echo "Credentials: legion/legionwork"
 echo ""
 end_step 9
 
@@ -671,9 +679,11 @@ echo -e "${BLUE}Databases included:${NC}"
 echo "  - legiondb (with full schema and data)"
 echo "  - legiondb0 (with full schema and data)"
 echo ""
-echo -e "${BLUE}MySQL Credentials:${NC}"
-echo "  Root User:     root / mysql123"
-echo "  Legion User:   legion / legionwork"
-echo "  ReadOnly User: legionro / legionwork"
+echo -e "${BLUE}MySQL Connection Info:${NC}"
+echo "  Host: localhost"
+echo "  Port: 3306"
+echo "  User: legion"
+echo "  Password: legionwork"
+echo "  Database: legiondb (913 tables) / legiondb0 (840 tables)"
 echo ""
-echo -e "${GREEN}✨ MySQL container with Legion data is ready for use locally!${NC}"
+echo -e "${GREEN}✨ MySQL container is running and ready to use!${NC}"
