@@ -85,11 +85,11 @@ if [ -z "$DBDUMPS_FOLDER" ]; then
     echo "  2. Get files from team (check Slack or Google Drive)"
     echo "  3. Place all three files in the folder"
     echo ""
-    echo -e "${BLUE}Default path: /Users/kumar.ramaiyer/work/dbdumps${NC}"
+    echo -e "${BLUE}Default path: ~/work/dbdumps${NC}"
     read -p "Enter path (or press Enter for default): " user_input
     
     if [ -z "$user_input" ]; then
-        DBDUMPS_FOLDER="/Users/kumar.ramaiyer/work/dbdumps"
+        DBDUMPS_FOLDER="$HOME/work/dbdumps"
     else
         DBDUMPS_FOLDER="$user_input"
     fi
