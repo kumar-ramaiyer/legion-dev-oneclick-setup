@@ -31,12 +31,8 @@ services:
       MYSQL_DATABASE: legiondb
       MYSQL_USER: legion
       MYSQL_PASSWORD: legionwork
-    volumes:
-      # Persist data between container restarts
-      - mysql-data:/var/lib/mysql
-      # MySQL configuration
-      - ./mysql/my.cnf:/etc/mysql/conf.d/legion.cnf:ro
-      # MySQL data pre-loaded in container - no init scripts needed
+    # IMPORTANT: No volumes! Data is baked into the image
+    # The image has all databases pre-loaded during build
     networks:
       - legion-network
     healthcheck:
@@ -154,7 +150,7 @@ services:
 volumes:
   caddy-data:
   caddy-config:
-  mysql-data:
+  # mysql-data: # Removed - data is baked into the image
   es-data:
   redis-master-data:
   redis-slave-data:
