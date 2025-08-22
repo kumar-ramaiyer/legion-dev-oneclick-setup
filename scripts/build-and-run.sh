@@ -29,6 +29,18 @@ fi
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Source Docker configuration for MySQL credentials
+DOCKER_CONFIG="$SCRIPT_DIR/../docker/config.sh"
+if [ -f "$DOCKER_CONFIG" ]; then
+    source "$DOCKER_CONFIG"
+else
+    # Fallback values if config doesn't exist
+    MYSQL_HOST="localhost"
+    MYSQL_PORT="3306"
+    MYSQL_USER="legion"
+    MYSQL_PASSWORD="legionwork"
+fi
+
 # Set the root directories
 LEGION_ROOT="$HOME/Development/legion/code"
 ENTERPRISE_ROOT="$LEGION_ROOT/enterprise"
@@ -192,11 +204,11 @@ run_backend() {
     
     # Check if MySQL is running
     echo -e "${BLUE}Checking MySQL connection...${NC}"
-    if mysql -h localhost -P 3306 -ulegion -plegionwork -e "SELECT 1" >/dev/null 2>&1; then
+    if mysql -h $MYSQL_HOST -P $MYSQL_PORT -u$MYSQL_USER -p$MYSQL_PASSWORD -e "SELECT 1" >/dev/null 2>&1; then
         echo -e "${GREEN}✓ MySQL is running and accessible${NC}"
     else
         echo -e "${RED}✗ MySQL is not accessible. Please ensure Docker containers are running.${NC}"
-        echo "Run: cd ~/work/legion-dev-oneclick-setup/docker && docker-compose up -d"
+        echo "Run: cd docker && docker-compose up -d"
         exit 1
     fi
     

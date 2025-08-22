@@ -8,12 +8,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/venv"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Source Docker configuration
+DOCKER_CONFIG="$PROJECT_DIR/docker/config.sh"
+if [ -f "$DOCKER_CONFIG" ]; then
+    source "$DOCKER_CONFIG"
+else
+    # Fallback values if config doesn't exist
+    MYSQL_ROOT_PASSWORD="mysql123"
+fi
+
+# Colors for output (might be overridden by config.sh)
+RED=${RED:-'\033[0;31m'}
+GREEN=${GREEN:-'\033[0;32m'}
+YELLOW=${YELLOW:-'\033[1;33m'}
+BLUE=${BLUE:-'\033[0;34m'}
+NC=${NC:-'\033[0m'} # No Color
 
 # Function to print colored output
 print_status() {
@@ -97,9 +106,9 @@ if command -v mysql &> /dev/null; then
     print_info "Removing Legion databases..."
     
     # Check if MySQL is running
-    if mysql -u root -pmysql123 -e "SELECT 1" 2>/dev/null; then
-        mysql -u root -pmysql123 -e "DROP DATABASE IF EXISTS legiondb;" 2>/dev/null && print_status "Removed legiondb database"
-        mysql -u root -pmysql123 -e "DROP DATABASE IF EXISTS legiondb0;" 2>/dev/null && print_status "Removed legiondb0 database"
+    if mysql -u root -p$MYSQL_ROOT_PASSWORD -e "SELECT 1" 2>/dev/null; then
+        mysql -u root -p$MYSQL_ROOT_PASSWORD -e "DROP DATABASE IF EXISTS legiondb;" 2>/dev/null && print_status "Removed legiondb database"
+        mysql -u root -p$MYSQL_ROOT_PASSWORD -e "DROP DATABASE IF EXISTS legiondb0;" 2>/dev/null && print_status "Removed legiondb0 database"
     else
         print_warning "MySQL not accessible, skipping database cleanup"
         print_info "You may need to manually remove databases if MySQL is configured differently"

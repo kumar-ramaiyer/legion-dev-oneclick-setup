@@ -316,9 +316,19 @@ setup_docker_environment() {
     
     # Clean up any existing containers and volumes
     print_status "Cleaning up existing Docker containers..."
-    docker-compose down -v 2>/dev/null || true
     
-    # Stop any standalone containers that might conflict
+    # Clean up old standalone containers (from before we moved to docker-compose)
+    # These might exist from old build scripts
+    docker stop mysql-temp mysql-import legion-mysql 2>/dev/null || true
+    docker rm mysql-temp mysql-import legion-mysql 2>/dev/null || true
+    
+    # Docker-compose cleanup (removes containers but preserves volumes)
+    # This stops and removes all docker-compose managed containers
+    # But volumes persist - that's where our MySQL data lives!
+    # The legion-mysql container will be recreated by docker-compose using the existing volume
+    docker-compose down 2>/dev/null || true
+    
+    # Stop any other containers that might conflict
     docker stop elasticsearch 2>/dev/null || true
     docker rm elasticsearch 2>/dev/null || true
     docker ps -a | grep localstack | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
@@ -342,31 +352,23 @@ setup_docker_environment() {
     # Check for Legion MySQL image with fail-fast approach
     print_status "Checking Legion MySQL image availability..."
     
-    # Priority 1: Check if locally built image exists
-    if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "legion-mysql:latest"; then
-        print_success "✓ Found locally built Legion MySQL image"
+    # Check if MySQL volume with data exists
+    if docker volume inspect legion-mysql-data >/dev/null 2>&1; then
+        print_success "✓ Found MySQL data volume (legion-mysql-data) with imported data"
+        print_status "Using existing MySQL data - no rebuild needed"
         
-        # IMPORTANT: If using a freshly built MySQL image, remove old volume data
-        if docker volume ls | grep -q "docker_mysql-data"; then
-            print_warning "Found existing MySQL data volume"
-            print_status "Removing old MySQL volume to use fresh data from image..."
-            docker-compose down mysql 2>/dev/null || true
-            docker volume rm docker_mysql-data 2>/dev/null || true
-            print_success "Old MySQL volume removed - will use fresh data from image"
-        fi
-        # Update docker-compose to use local image
-        sed -i.bak 's|image: mysql:8.0|image: legion-mysql:latest|' docker-compose.yml
-        sed -i.bak 's|image: legiontech.jfrog.io/docker-local/legion-mysql:latest|image: legion-mysql:latest|' docker-compose.yml
-        # Remove init scripts volume line if present (pre-loaded data in container)
-        sed -i.bak '/.*mysql\/init-scripts:\/docker-entrypoint-initdb.d/d' docker-compose.yml
+        # NO LONGER MODIFYING docker-compose.yml - using volume approach instead
+        # The docker-compose.yml now has 'external: true' for the volume
+        # sed -i.bak '/.*mysql\/init-scripts:\/docker-entrypoint-initdb.d/d' docker-compose.yml
+        print_status "Using standard MySQL image with legion-mysql-data volume"
         
     # Priority 2: Check JFrog registry
     elif docker pull legiontech.jfrog.io/docker-local/legion-mysql:latest 2>/dev/null; then
         print_success "✓ Found Legion MySQL image on JFrog"
-        # Update docker-compose to use JFrog image
-        sed -i.bak 's|image: mysql:8.0|image: legiontech.jfrog.io/docker-local/legion-mysql:latest|' docker-compose.yml
-        # Remove init scripts volume line if present (pre-loaded data in container)
-        sed -i.bak '/.*mysql\/init-scripts:\/docker-entrypoint-initdb.d/d' docker-compose.yml
+        # NO LONGER MODIFYING docker-compose.yml - using volume approach instead
+        # sed -i.bak 's|image: mysql:8.0|image: legiontech.jfrog.io/docker-local/legion-mysql:latest|' docker-compose.yml
+        # sed -i.bak '/.*mysql\/init-scripts:\/docker-entrypoint-initdb.d/d' docker-compose.yml
+        print_status "Using standard MySQL image with legion-mysql-data volume"
         
     # Priority 3: FAIL FAST - Image not available anywhere
     else
@@ -789,12 +791,12 @@ show_next_steps() {
 🚀 TO START THE APPLICATION:
 
    1. Start Backend:
-      cd ~/work/legion-dev-oneclick-setup
-      ./scripts/run-backend.sh
+      cd legion-dev-oneclick-setup
+      ./scripts/build-and-run.sh run-backend
       
    2. Start Frontend:
-      cd ~/Development/legion/code/console-ui
-      yarn start
+      cd legion-dev-oneclick-setup
+      ./scripts/build-and-run.sh run-frontend
       
    3. Access the application:
       https://legion.local
