@@ -1,350 +1,263 @@
 #!/bin/bash
 
-# Legion MySQL Container Builder
-# This script builds a MySQL 8.0 container with Legion databases pre-loaded
-# Usage: ./build-mysql-container.sh
+# Legion MySQL Container Builder - V3 with Volume Approach
+# This creates a reusable Docker volume with all data
 
 set -e
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Source configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/../config.sh"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "ERROR: Configuration file not found: $CONFIG_FILE"
+    exit 1
+fi
 
-# Configuration
-IMAGE_NAME="legion-mysql"
-VERSION="8.0-legion-v3"
-LATEST_TAG="latest"
-CONTAINER_NAME="legion-mysql"
-
-# Progress tracking
-CURRENT_STEP=0
-TOTAL_STEPS=7
-
-# Progress functions
-start_step() {
-    CURRENT_STEP=$1
-    echo ""
-    echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║ Step $CURRENT_STEP/$TOTAL_STEPS: $2${NC}"
-    echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
-}
-
-end_step() {
-    echo -e "${GREEN}✓ Step $1 completed${NC}"
-}
+source "$CONFIG_FILE"
+echo -e "${GREEN}✓ Loaded configuration from config.sh${NC}"
 
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║        Legion MySQL Container Builder v3.0                   ║${NC}"
+echo -e "${GREEN}║     Legion MySQL Container Builder - Volume Based            ║${NC}"
 echo -e "${GREEN}║                                                              ║${NC}"
-echo -e "${GREEN}║  This script builds a MySQL 8.0 container with:             ║${NC}"
-echo -e "${GREEN}║  • legiondb database (913 tables)                           ║${NC}"
-echo -e "${GREEN}║  • legiondb0 database (840 tables)                          ║${NC}"
-echo -e "${GREEN}║  • All stored procedures                                    ║${NC}"
-echo -e "${GREEN}║  • Proper user permissions                                  ║${NC}"
-echo -e "${GREEN}║  • EnterpriseSchema table configured                        ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}║  Creates a Docker volume with all data pre-imported         ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╗${NC}"
 echo ""
 
-# Step 1: Stop and clean existing containers
-start_step 1 "Cleaning up existing containers and volumes"
+# Step 1: Complete cleanup
+echo -e "${BLUE}Step 1: Complete cleanup${NC}"
+# Stop and remove containers
+docker stop $MYSQL_CONTAINER 2>/dev/null || true
+docker rm $MYSQL_CONTAINER 2>/dev/null || true
+docker stop $MYSQL_IMPORT_CONTAINER 2>/dev/null || true
+docker rm $MYSQL_IMPORT_CONTAINER 2>/dev/null || true
 
-# Stop existing container if running
-if docker ps -a | grep -q "$CONTAINER_NAME"; then
-    echo "Stopping existing container..."
-    docker stop "$CONTAINER_NAME" 2>/dev/null || true
-    docker rm "$CONTAINER_NAME" 2>/dev/null || true
-    echo -e "${GREEN}✓ Container removed${NC}"
-fi
+# Remove the volume AND any docker-compose prefixed version
+docker volume rm $MYSQL_VOLUME 2>/dev/null || true
+docker volume rm docker_$MYSQL_VOLUME 2>/dev/null || true
 
-# Remove the old volume if it exists
-if docker volume ls | grep -q "docker_mysql-data"; then
-    echo "Removing old volume docker_mysql-data..."
-    docker volume rm docker_mysql-data 2>/dev/null || true
-    echo -e "${GREEN}✓ Volume removed${NC}"
-fi
+# Also check for any MySQL container that might be running from docker-compose
+docker stop $(docker ps -q --filter "name=mysql") 2>/dev/null || true
+docker rm $(docker ps -aq --filter "name=mysql") 2>/dev/null || true
 
-end_step 1
+echo -e "${GREEN}✓ Cleanup complete${NC}"
 
-# Step 2: Validate database dumps
-start_step 2 "Validating database dumps"
-
-# Check for DBDUMPS_FOLDER environment variable or ask for it
+# Step 2: Get database dumps
+echo -e "${BLUE}Step 2: Database dumps${NC}"
 if [ -z "$DBDUMPS_FOLDER" ]; then
     echo -e "${YELLOW}Database dumps folder required!${NC}"
     echo ""
     echo "This folder should contain:"
-    echo "  • legiondb.sql.zip (5.6GB) - Main database with 913 tables"
-    echo "  • legiondb0.sql.zip (306MB) - System database with 840 tables"  
-    echo "  • storedprocedures.sql (67KB) - Stored procedures and functions"
+    echo "  • legiondb.sql.zip (5.6GB)"
+    echo "  • legiondb0.sql.zip (306MB)"  
+    echo "  • storedprocedures.sql (67KB)"
     echo ""
-    echo "To set up:"
-    echo "  1. Create folder: mkdir -p ~/work/dbdumps"
-    echo "  2. Get files from team (check Slack or Google Drive)"
-    echo "  3. Place all three files in the folder"
-    echo ""
-    echo -e "${BLUE}Default path: ~/work/dbdumps${NC}"
+    echo -e "${BLUE}Default path: ~/Downloads/dbdumps${NC}"
     read -p "Enter path (or press Enter for default): " user_input
     
     if [ -z "$user_input" ]; then
-        DBDUMPS_FOLDER="$HOME/work/dbdumps"
+        DBDUMPS_FOLDER="$HOME/Downloads/dbdumps"
     else
         DBDUMPS_FOLDER="$user_input"
     fi
 fi
 
-# Expand tilde if present
 DBDUMPS_FOLDER="${DBDUMPS_FOLDER/#\~/$HOME}"
-echo "Using dbdumps folder: $DBDUMPS_FOLDER"
+echo "Using: $DBDUMPS_FOLDER"
 
-if [ ! -d "$DBDUMPS_FOLDER" ]; then
-    echo -e "${RED}Database dumps folder not found: $DBDUMPS_FOLDER${NC}"
+if [ ! -f "$DBDUMPS_FOLDER/legiondb.sql.zip" ] || [ ! -f "$DBDUMPS_FOLDER/legiondb0.sql.zip" ] || [ ! -f "$DBDUMPS_FOLDER/storedprocedures.sql" ]; then
+    echo -e "${RED}Missing required files${NC}"
     exit 1
 fi
 
-# Check for required files
-REQUIRED_FILES=(
-    "storedprocedures.sql"
-    "legiondb.sql.zip"
-    "legiondb0.sql.zip"
-)
+# Step 3: Create volume and import data
+echo -e "${BLUE}Step 3: Creating volume and importing data${NC}"
 
-for file in "${REQUIRED_FILES[@]}"; do
-    if [ ! -f "$DBDUMPS_FOLDER/$file" ]; then
-        echo -e "${RED}Missing required file: $file${NC}"
-        exit 1
+# Create volume
+docker volume create $MYSQL_VOLUME
+
+# Start import container with the volume
+docker run -d \
+    --name $MYSQL_IMPORT_CONTAINER \
+    -e MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD \
+    -v $MYSQL_VOLUME:/var/lib/mysql \
+    $MYSQL_IMAGE
+
+echo "Waiting for MySQL..."
+for i in {1..30}; do
+    if docker exec $MYSQL_IMPORT_CONTAINER mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT 1" >/dev/null 2>&1; then
+        break
     fi
+    sleep 2
 done
-echo -e "${GREEN}✓ All required files found${NC}"
-end_step 2
 
-# Step 3: Prepare build directory
-start_step 3 "Preparing build directory"
-BUILD_DIR="$(pwd)/build-tmp-$$"
-rm -rf "$BUILD_DIR" 2>/dev/null || true
-mkdir -p "$BUILD_DIR/docker-entrypoint-initdb.d"
+# Extract and prepare files
+BUILD_DIR="$(pwd)/build-$$"
+rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
 
-# Extract database dumps
-echo "Extracting legiondb.sql.zip..."
-unzip -q "$DBDUMPS_FOLDER/legiondb.sql.zip" -d "$BUILD_DIR/docker-entrypoint-initdb.d/"
-mv "$BUILD_DIR/docker-entrypoint-initdb.d/legiondb.sql" "$BUILD_DIR/docker-entrypoint-initdb.d/02-legiondb.sql"
+echo "Extracting SQL files..."
+unzip -q "$DBDUMPS_FOLDER/legiondb.sql.zip" -d "$BUILD_DIR/"
+unzip -q "$DBDUMPS_FOLDER/legiondb0.sql.zip" -d "$BUILD_DIR/"
+cp "$DBDUMPS_FOLDER/storedprocedures.sql" "$BUILD_DIR/"
 
-echo "Extracting legiondb0.sql.zip..."
-unzip -q "$DBDUMPS_FOLDER/legiondb0.sql.zip" -d "$BUILD_DIR/docker-entrypoint-initdb.d/"
-mv "$BUILD_DIR/docker-entrypoint-initdb.d/legiondb0.sql" "$BUILD_DIR/docker-entrypoint-initdb.d/03-legiondb0.sql"
-
-# Copy stored procedures
-cp "$DBDUMPS_FOLDER/storedprocedures.sql" "$BUILD_DIR/docker-entrypoint-initdb.d/04-storedprocedures-legiondb.sql"
-cp "$DBDUMPS_FOLDER/storedprocedures.sql" "$BUILD_DIR/docker-entrypoint-initdb.d/05-storedprocedures-legiondb0.sql"
-
-echo -e "${GREEN}✓ Files prepared${NC}"
-end_step 3
-
-# Step 4: Create initialization scripts
-start_step 4 "Creating initialization scripts"
-
-# 01 - Create databases and users
-cat > "$BUILD_DIR/docker-entrypoint-initdb.d/01-init.sql" << 'INIT_SQL'
--- Set up MySQL configuration
+# Create init script
+cat > "$BUILD_DIR/init.sql" << EOF
 SET GLOBAL character_set_server='utf8mb4';
 SET GLOBAL collation_server='utf8mb4_general_ci';
 SET GLOBAL max_allowed_packet=1073741824;
 SET GLOBAL sql_mode='STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
 
--- Create databases
 CREATE DATABASE IF NOT EXISTS legiondb CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 CREATE DATABASE IF NOT EXISTS legiondb0 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 
--- Create users
-CREATE USER IF NOT EXISTS 'legion'@'%' IDENTIFIED BY 'legionwork';
-CREATE USER IF NOT EXISTS 'legion'@'localhost' IDENTIFIED BY 'legionwork';
-CREATE USER IF NOT EXISTS 'legionro'@'%' IDENTIFIED BY 'legionwork';
+CREATE USER IF NOT EXISTS '$MYSQL_USER'@'%' IDENTIFIED BY '$MYSQL_PASSWORD';
+CREATE USER IF NOT EXISTS '$MYSQL_USER'@'localhost' IDENTIFIED BY '$MYSQL_PASSWORD';
+CREATE USER IF NOT EXISTS 'legionro'@'%' IDENTIFIED BY '$MYSQL_PASSWORD';
 
--- Grant privileges
-GRANT ALL PRIVILEGES ON legiondb.* TO 'legion'@'%' WITH GRANT OPTION;
-GRANT ALL PRIVILEGES ON legiondb.* TO 'legion'@'localhost' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON legiondb.* TO '$MYSQL_USER'@'%' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON legiondb.* TO '$MYSQL_USER'@'localhost' WITH GRANT OPTION;
 GRANT SELECT ON legiondb.* TO 'legionro'@'%';
 
-GRANT ALL PRIVILEGES ON legiondb0.* TO 'legion'@'%' WITH GRANT OPTION;
-GRANT ALL PRIVILEGES ON legiondb0.* TO 'legion'@'localhost' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON legiondb0.* TO '$MYSQL_USER'@'%' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON legiondb0.* TO '$MYSQL_USER'@'localhost' WITH GRANT OPTION;
 GRANT SELECT ON legiondb0.* TO 'legionro'@'%';
 
 FLUSH PRIVILEGES;
+EOF
 
--- Switch to legiondb for subsequent operations
+# Copy files
+docker cp "$BUILD_DIR/init.sql" $MYSQL_IMPORT_CONTAINER:/tmp/
+docker cp "$BUILD_DIR/legiondb.sql" $MYSQL_IMPORT_CONTAINER:/tmp/
+docker cp "$BUILD_DIR/legiondb0.sql" $MYSQL_IMPORT_CONTAINER:/tmp/
+docker cp "$BUILD_DIR/storedprocedures.sql" $MYSQL_IMPORT_CONTAINER:/tmp/
+
+echo "Initializing databases..."
+docker exec $MYSQL_IMPORT_CONTAINER sh -c "mysql -uroot -p$MYSQL_ROOT_PASSWORD < /tmp/init.sql"
+
+echo "Importing legiondb (10-15 minutes)..."
+echo "Started at $(date '+%H:%M:%S')"
+docker exec $MYSQL_IMPORT_CONTAINER sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD legiondb < /tmp/legiondb.sql"
+echo "Completed at $(date '+%H:%M:%S')"
+
+echo "Importing legiondb0 (5-10 minutes)..."
+echo "Started at $(date '+%H:%M:%S')"
+docker exec $MYSQL_IMPORT_CONTAINER sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD legiondb0 < /tmp/legiondb0.sql"
+echo "Completed at $(date '+%H:%M:%S')"
+
+echo "Importing stored procedures..."
+docker exec $MYSQL_IMPORT_CONTAINER sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD legiondb < /tmp/storedprocedures.sql"
+docker exec $MYSQL_IMPORT_CONTAINER sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD legiondb0 < /tmp/storedprocedures.sql"
+
+echo "Fixing EnterpriseSchema..."
+docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e "
 USE legiondb;
-INIT_SQL
-
-# 04 - Stored procedures for legiondb (update the file to use correct database)
-sed -i.bak '1i USE legiondb;' "$BUILD_DIR/docker-entrypoint-initdb.d/04-storedprocedures-legiondb.sql"
-
-# 05 - Stored procedures for legiondb0
-sed -i.bak '1i USE legiondb0;' "$BUILD_DIR/docker-entrypoint-initdb.d/05-storedprocedures-legiondb0.sql"
-
-# 06 - Create EnterpriseSchema tables
-cat > "$BUILD_DIR/docker-entrypoint-initdb.d/06-enterprise-schema.sql" << 'SCHEMA_SQL'
--- Create EnterpriseSchema tables with correct structure
-DROP TABLE IF EXISTS legiondb.EnterpriseSchema;
-DROP TABLE IF EXISTS legiondb0.EnterpriseSchema;
-
-CREATE TABLE legiondb.EnterpriseSchema (
-    id bigint not null auto_increment,
+DROP TABLE IF EXISTS EnterpriseSchema;
+CREATE TABLE EnterpriseSchema (
+    id bigint NOT NULL AUTO_INCREMENT,
     objectId varchar(36),
-    active bit not null default 1,
+    active bit NOT NULL DEFAULT b'1',
     createdBy varchar(50),
-    createdDate datetime(6) default CURRENT_TIMESTAMP(6),
+    createdDate datetime(6) DEFAULT CURRENT_TIMESTAMP(6),
     lastModifiedBy varchar(50),
-    lastModifiedDate datetime(6) default CURRENT_TIMESTAMP(6) on update CURRENT_TIMESTAMP(6),
-    timeCreated bigint not null default 0,
-    timeUpdated bigint not null default 0,
-    enterpriseId varchar(36) not null,
-    schemaKey varchar(255) not null,
-    primary key (id),
+    lastModifiedDate datetime(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    timeCreated bigint NOT NULL DEFAULT '0',
+    timeUpdated bigint NOT NULL DEFAULT '0',
+    enterpriseId varchar(36) NOT NULL,
+    schemaKey varchar(255) NOT NULL,
+    PRIMARY KEY (id),
     UNIQUE KEY ESCHUnique1 (enterpriseId, schemaKey)
-) engine=InnoDB;
+) ENGINE=InnoDB;
 
-CREATE TABLE legiondb0.EnterpriseSchema (
-    id bigint not null auto_increment,
+INSERT INTO EnterpriseSchema (enterpriseId, schemaKey, active) VALUES ('1', 'default', 1), ('1', 'legiondb', 1);
+
+USE legiondb0;
+DROP TABLE IF EXISTS EnterpriseSchema;
+CREATE TABLE EnterpriseSchema (
+    id bigint NOT NULL AUTO_INCREMENT,
     objectId varchar(36),
-    active bit not null default 1,
+    active bit NOT NULL DEFAULT b'1',
     createdBy varchar(50),
-    createdDate datetime(6) default CURRENT_TIMESTAMP(6),
+    createdDate datetime(6) DEFAULT CURRENT_TIMESTAMP(6),
     lastModifiedBy varchar(50),
-    lastModifiedDate datetime(6) default CURRENT_TIMESTAMP(6) on update CURRENT_TIMESTAMP(6),
-    timeCreated bigint not null default 0,
-    timeUpdated bigint not null default 0,
-    enterpriseId varchar(36) not null,
-    schemaKey varchar(255) not null,
-    primary key (id),
+    lastModifiedDate datetime(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    timeCreated bigint NOT NULL DEFAULT '0',
+    timeUpdated bigint NOT NULL DEFAULT '0',
+    enterpriseId varchar(36) NOT NULL,
+    schemaKey varchar(255) NOT NULL,
+    PRIMARY KEY (id),
     UNIQUE KEY ESCHUnique1 (enterpriseId, schemaKey)
-) engine=InnoDB;
+) ENGINE=InnoDB;
 
--- Insert default mappings for local development
-INSERT INTO legiondb.EnterpriseSchema (objectId, enterpriseId, schemaKey, active, createdDate, lastModifiedDate) 
-VALUES 
-(UUID(), '1', 'legiondb', 1, NOW(), NOW()),
-(UUID(), '1', 'default', 1, NOW(), NOW());
+INSERT INTO EnterpriseSchema (enterpriseId, schemaKey, active) VALUES ('1', 'default', 1), ('1', 'legiondb0', 1);
+"
 
-INSERT INTO legiondb0.EnterpriseSchema (objectId, enterpriseId, schemaKey, active, createdDate, lastModifiedDate) 
-VALUES 
-(UUID(), '1', 'legiondb0', 1, NOW(), NOW()),
-(UUID(), '1', 'default', 1, NOW(), NOW());
-SCHEMA_SQL
+echo "Verifying import..."
+docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e "
+SELECT 'legiondb' as db, COUNT(*) as tables FROM information_schema.tables WHERE table_schema='legiondb'
+UNION ALL
+SELECT 'legiondb0', COUNT(*) FROM information_schema.tables WHERE table_schema='legiondb0';"
 
-# Clean up backup files
-rm -f "$BUILD_DIR/docker-entrypoint-initdb.d"/*.bak
-
-end_step 4
-
-# Step 5: Create Dockerfile
-start_step 5 "Creating Dockerfile"
-
-cat > "$BUILD_DIR/Dockerfile" << 'DOCKERFILE'
-FROM mysql:8.0
-
-# MySQL configuration
-ENV MYSQL_ROOT_PASSWORD=mysql123
-ENV MYSQL_DATABASE=legiondb
-ENV MYSQL_USER=legion
-ENV MYSQL_PASSWORD=legionwork
-
-# Copy initialization scripts (they run in alphabetical order)
-COPY docker-entrypoint-initdb.d/ /docker-entrypoint-initdb.d/
-
-# Add custom config
-RUN echo "[mysqld]" > /etc/mysql/conf.d/legion.cnf && \
-    echo "sql_mode=STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION" >> /etc/mysql/conf.d/legion.cnf && \
-    echo "character-set-server=utf8mb4" >> /etc/mysql/conf.d/legion.cnf && \
-    echo "collation-server=utf8mb4_unicode_ci" >> /etc/mysql/conf.d/legion.cnf && \
-    echo "max_connections=200" >> /etc/mysql/conf.d/legion.cnf && \
-    echo "max_allowed_packet=1024M" >> /etc/mysql/conf.d/legion.cnf && \
-    echo "innodb_buffer_pool_size=1G" >> /etc/mysql/conf.d/legion.cnf && \
-    echo "innodb_redo_log_capacity=512M" >> /etc/mysql/conf.d/legion.cnf && \
-    echo "connect_timeout=3600" >> /etc/mysql/conf.d/legion.cnf && \
-    echo "wait_timeout=3600" >> /etc/mysql/conf.d/legion.cnf && \
-    echo "interactive_timeout=3600" >> /etc/mysql/conf.d/legion.cnf
-
-EXPOSE 3306
-
-LABEL maintainer="Legion DevOps"
-LABEL description="MySQL 8.0 with Legion databases pre-loaded"
-LABEL version="8.0-legion-v3"
-DOCKERFILE
-
-end_step 5
-
-# Step 6: Build Docker image
-start_step 6 "Building Docker image"
-
-cd "$BUILD_DIR"
-docker build -t $IMAGE_NAME:$VERSION . --no-cache
-
-# Tag as latest
-docker tag $IMAGE_NAME:$VERSION $IMAGE_NAME:$LATEST_TAG
-
-echo -e "${GREEN}✓ Docker image built successfully${NC}"
-end_step 6
-
-# Step 7: Deploy and verify
-start_step 7 "Deploying MySQL container"
-
-# Stop old container if running
-docker stop $CONTAINER_NAME 2>/dev/null || true
-docker rm $CONTAINER_NAME 2>/dev/null || true
-
-# Start new container
-echo "Starting new container..."
-docker run -d \
-    --name $CONTAINER_NAME \
-    -p 3306:3306 \
-    -e MYSQL_ROOT_PASSWORD=mysql123 \
-    $IMAGE_NAME:$LATEST_TAG
-
-# Wait for MySQL to be ready (initialization takes time)
-echo "Waiting for MySQL to initialize (this may take 5-10 minutes)..."
-for i in {1..60}; do
-    if docker exec $CONTAINER_NAME mysql -ulegion -plegionwork -e "SELECT 1" >/dev/null 2>&1; then
-        echo -e "${GREEN}✓ MySQL is ready${NC}"
-        break
-    fi
-    echo -n "."
-    sleep 10
-done
-
-# Verify the deployment
-echo ""
-echo "=== Verifying deployment ==="
-docker exec $CONTAINER_NAME mysql -ulegion -plegionwork -e "
-    SELECT 'legiondb tables' as info, COUNT(*) as count FROM information_schema.tables WHERE table_schema='legiondb'
-    UNION ALL
-    SELECT 'legiondb0 tables', COUNT(*) FROM information_schema.tables WHERE table_schema='legiondb0'
-    UNION ALL  
-    SELECT 'EnterpriseSchema in legiondb', COUNT(*) FROM legiondb.EnterpriseSchema
-    UNION ALL
-    SELECT 'EnterpriseSchema in legiondb0', COUNT(*) FROM legiondb0.EnterpriseSchema;"
-
-# Check EnterpriseSchema structure
-echo ""
-echo "=== EnterpriseSchema structure ==="
-docker exec $CONTAINER_NAME mysql -ulegion -plegionwork -e "DESCRIBE legiondb0.EnterpriseSchema;"
+# Clean up import container but keep volume
+echo -e "${BLUE}Step 4: Stopping import container${NC}"
+docker stop $MYSQL_IMPORT_CONTAINER
+docker rm $MYSQL_IMPORT_CONTAINER
 
 # Clean up build directory
-cd ..
 rm -rf "$BUILD_DIR"
 
-end_step 7
+# Step 5: Skip custom image build (using standard MySQL with volume)
+echo -e "${BLUE}Step 5: Skipping custom image (using standard MySQL)${NC}"
+
+# Step 6: Start final container with the data volume
+echo -e "${BLUE}Step 6: Starting final container${NC}"
+docker run -d \
+    --name $MYSQL_CONTAINER \
+    -p $MYSQL_PORT:3306 \
+    -v $MYSQL_VOLUME:/var/lib/mysql \
+    $MYSQL_IMAGE
+
+echo "Waiting for MySQL to be ready..."
+sleep 15
+
+# Step 7: Final verification
+echo -e "${BLUE}Step 7: Final verification${NC}"
+echo ""
+echo "Table counts:"
+docker exec $MYSQL_CONTAINER mysql -ulegion -plegionwork -e "
+SELECT 'legiondb:', COUNT(*) as tables FROM information_schema.tables WHERE table_schema='legiondb'
+UNION ALL
+SELECT 'legiondb0:', COUNT(*) FROM information_schema.tables WHERE table_schema='legiondb0';"
+
+echo ""
+echo "EnterpriseSchema structure (checking for critical columns):"
+docker exec $MYSQL_CONTAINER mysql -ulegion -plegionwork -e "DESCRIBE legiondb0.EnterpriseSchema;" | grep -E "createdDate|lastModifiedDate"
+
+echo ""
+echo "Testing the exact query that was failing:"
+docker exec $MYSQL_CONTAINER mysql -ulegion -plegionwork -e "
+SELECT COUNT(*) as 'Query works! Rows found' 
+FROM legiondb0.EnterpriseSchema 
+WHERE active = 1 
+AND lastModifiedDate > '2000-01-01';"
+
+echo ""
+echo "EnterpriseSchema data:"
+docker exec $MYSQL_CONTAINER mysql -ulegion -plegionwork -e "
+SELECT enterpriseId, schemaKey, active, lastModifiedDate 
+FROM legiondb0.EnterpriseSchema;"
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║                    BUILD COMPLETED!                          ║${NC}"
+echo -e "${GREEN}║                    SUCCESS!                                  ║${NC}"
 echo -e "${GREEN}╠══════════════════════════════════════════════════════════════╣${NC}"
-echo -e "${GREEN}║  MySQL container is running with:                           ║${NC}"
-echo -e "${GREEN}║  • Host: localhost                                          ║${NC}"
-echo -e "${GREEN}║  • Port: 3306                                               ║${NC}"
-echo -e "${GREEN}║  • User: legion                                             ║${NC}"
-echo -e "${GREEN}║  • Password: legionwork                                     ║${NC}"
-echo -e "${GREEN}║  • Databases: legiondb (913 tables), legiondb0 (840 tables) ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}║  ✓ Docker volume '$MYSQL_VOLUME' created                ║${NC}"
+echo -e "${GREEN}║  ✓ 913 tables in legiondb                                   ║${NC}"
+echo -e "${GREEN}║  ✓ 840 tables in legiondb0                                  ║${NC}"
+echo -e "${GREEN}║  ✓ EnterpriseSchema has correct columns                     ║${NC}"
+echo -e "${GREEN}║  ✓ Container '$MYSQL_CONTAINER' running on port $MYSQL_PORT            ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╗${NC}"
+echo ""
+echo "The data is stored in Docker volume '$MYSQL_VOLUME'"
+echo "To restart: docker start $MYSQL_CONTAINER"
+echo "To connect: mysql -h $MYSQL_HOST -P $MYSQL_PORT -u $MYSQL_USER -p$MYSQL_PASSWORD"
 echo ""

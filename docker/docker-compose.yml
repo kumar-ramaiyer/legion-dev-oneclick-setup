@@ -19,20 +19,19 @@ services:
       - redis-master
     restart: unless-stopped
 
-  # MySQL with Legion databases (pre-built with data)
+  # MySQL with Legion databases
   mysql:
-    image: legion-mysql:latest
-    pull_policy: never  # Use local image, don't try to pull
-    container_name: legion-mysql
+    image: ${MYSQL_IMAGE:-mysql:8.0}
+    container_name: ${MYSQL_CONTAINER:-legion-mysql}
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: mysql123
-      MYSQL_DATABASE: legiondb
-      MYSQL_USER: legion
-      MYSQL_PASSWORD: legionwork
-    # IMPORTANT: No volumes! Data is baked into the image
-    # The image has all databases pre-loaded during build
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mysql123}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-legiondb}
+      MYSQL_USER: ${MYSQL_USER:-legion}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-legionwork}
+    volumes:
+      - ${MYSQL_VOLUME:-legion-mysql-data}:/var/lib/mysql
     networks:
       - legion-network
     healthcheck:
@@ -150,7 +149,8 @@ services:
 volumes:
   caddy-data:
   caddy-config:
-  # mysql-data: # Removed - data is baked into the image
+  legion-mysql-data:  # MySQL data volume
+    external: true
   es-data:
   redis-master-data:
   redis-slave-data:

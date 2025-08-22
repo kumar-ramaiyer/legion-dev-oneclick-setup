@@ -11,9 +11,10 @@ Enterprise-grade automated setup with Docker containerization, full build automa
 git clone https://github.com/legionco/legion-dev-oneclick-setup.git
 cd legion-dev-oneclick-setup
 
-# Build MySQL container with full database (one-time, ~30 mins)
+# Build MySQL data volume with full database (one-time, ~30 mins)
 cd docker/mysql
-DBDUMPS_FOLDER="/path/to/dbdumps" ./build-mysql-container.sh
+./build-mysql-container.sh
+# When prompted, enter path to dbdumps folder or press Enter for default
 cd ../..
 
 # Run setup - builds BOTH backend and frontend, starts all Docker services
@@ -27,7 +28,7 @@ cd ../..
 ## 🐳 What Gets Set Up
 
 ### Docker Services (All Automatic)
-- **MySQL 8.0** with pre-loaded Legion databases from JFrog
+- **MySQL 8.0** with pre-loaded Legion databases (uses Docker volume)
 - **Elasticsearch 8.0** for search and analytics
 - **Redis Master/Slave** for distributed locking
 - **Caddy** reverse proxy with automatic HTTPS
@@ -98,7 +99,7 @@ No prompts, no decisions - fully automated! After setup, both applications are f
      Your Machine                    Docker Containers
 ┌─────────────────────┐         ┌──────────────────────┐
 │                     │         │                      │
-│  Backend (Java)     │────────▶│  MySQL (JFrog)       │
+│  Backend (Java)     │────────▶│  MySQL (Volume Data) │
 │  localhost:8080     │         │  Elasticsearch       │
 │                     │         │  Redis Master/Slave  │
 │  Frontend (React)   │         │  LocalStack (AWS)    │
@@ -122,20 +123,23 @@ No prompts, no decisions - fully automated! After setup, both applications are f
 ## 🗄️ Database Management
 
 ### Automatic MySQL Setup
-- **Pre-built Container**: MySQL 8.0 with all Legion data included
+- **Docker Volume Based**: MySQL 8.0 with data stored in Docker volume
 - **Full Schema**: 913 tables in legiondb, 840 tables in legiondb0
+- **EnterpriseSchema Fixed**: Correct columns (createdDate, lastModifiedDate) for backend compatibility
 - **Instant Start**: Database ready immediately when container starts
 - **Idempotent Build**: Script automatically rebuilds if needed
 
-### Rebuilding MySQL (If Needed)
+### Building/Rebuilding MySQL Data
 ```bash
 cd docker/mysql
-DBDUMPS_FOLDER="/path/to/dbdumps" ./build-mysql-container.sh
+./build-mysql-container.sh
+# Enter path to dbdumps when prompted (or press Enter for ~/Downloads/dbdumps)
 ```
 The build script:
 - Automatically stops old containers and removes volumes
-- Builds new image with fresh data
-- Deploys the new container automatically
+- Creates a Docker volume with all data imported
+- Fixes EnterpriseSchema table structure for backend compatibility
+- Tests the data import and verifies table counts
 - No manual steps required
 
 
@@ -148,7 +152,7 @@ legion-dev-oneclick-setup/
 │   ├── docker-compose.yml    # All services configuration
 │   ├── Caddyfile            # HTTPS routing
 │   └── mysql/               # MySQL container scripts
-│       ├── build-mysql-container.sh  # For DevOps team only
+│       ├── build-mysql-container.sh  # MySQL data import script
 │       └── README.md        # MySQL container docs
 └── README.md                 # This file
 
@@ -235,9 +239,10 @@ yarn build
 
 ### MySQL Missing Tables?
 ```bash
-# Rebuild MySQL container with full data:
+# Rebuild MySQL data volume:
 cd docker/mysql
-DBDUMPS_FOLDER="~/work/dbdumps" ./build-mysql-container.sh
+./build-mysql-container.sh
+# Enter dbdumps path when prompted
 ```
 
 ### Port Conflicts?
@@ -274,13 +279,14 @@ cd ..
 
 ## 🎯 Version History
 
-### v6.1 (Current) - FULLY AUTOMATED BUILD & DEPLOY
+### v6.2 (Current) - VOLUME-BASED MySQL & CENTRALIZED CONFIG
+- 🗄️ MySQL data in Docker volume (not image) for reliability
+- 🔧 Fixed EnterpriseSchema columns (createdDate/lastModifiedDate) 
+- 📋 Centralized configuration (docker/config.sh) for consistent naming
+- 🔨 Idempotent scripts: safe to run multiple times
 - 🚀 Complete automation: builds backend and frontend
-- 🔨 Idempotent scripts: safe to run multiple times  
-- 🐳 Automatic MySQL container deployment
-- 📦 Unified build system with build-and-run.sh for both backend and frontend
-- 🔄 Lerna bootstrap for frontend packages
-- ⚡ 15-20 minute total setup with builds
+- 📦 Unified build system with build-and-run.sh
+- ⚡ 15-20 minute setup + 30 min MySQL import (first time)
 
 ### Previous Versions
 - v5.0: Dual approach (Docker + Traditional)
@@ -299,4 +305,6 @@ cd legion-dev-oneclick-setup
 ./setup.sh
 ```
 
-Transform your machine into a Legion development powerhouse in **5 minutes**!
+Transform your machine into a Legion development powerhouse!
+
+**Note**: First-time MySQL data import takes ~30 minutes. Subsequent runs are much faster.

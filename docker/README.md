@@ -94,8 +94,8 @@ cp ~/work/dbdumps/*.sql data/
 unzip data/legiondb.sql.zip -d data/
 unzip data/legiondb0.sql.zip -d data/
 
-# Build and push to JFrog
-./build-and-push.sh
+# Build container with data
+./build-mysql-container.sh
 ```
 
 ## 📝 Docker Commands
