@@ -148,9 +148,27 @@ echo "Importing stored procedures..."
 docker exec $MYSQL_IMPORT_CONTAINER sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD legiondb < /tmp/storedprocedures.sql"
 docker exec $MYSQL_IMPORT_CONTAINER sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD legiondb0 < /tmp/storedprocedures.sql"
 
-echo "Fixing EnterpriseSchema..."
+echo "Migrating Enterprise data if needed..."
+docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e "
+-- Check if Enterprise table is empty but migrated table has data
+SET @enterprise_count = (SELECT COUNT(*) FROM legiondb.Enterprise);
+SET @migrated_count = (SELECT COUNT(*) FROM legiondb.Enterprise_migrated_20240712100546);
+
+-- If Enterprise is empty but migrated table has data, copy it over
+INSERT INTO legiondb.Enterprise (id, active, createdBy, externalId, objectId, timeCreated, timeUpdated, 
+                                displayName, name, createdDate, lastModifiedBy, lastModifiedDate, 
+                                logoUrl, firstDayOfWeek, splashUrl, enterpriseType, defaultLocationPicUrl, schemaKey)
+SELECT id, active, createdBy, externalId, objectId, timeCreated, timeUpdated, 
+       displayName, name, createdDate, lastModifiedBy, lastModifiedDate, 
+       logoUrl, firstDayOfWeek, splashUrl, enterpriseType, defaultLocationPicUrl, 'legiondb'
+FROM legiondb.Enterprise_migrated_20240712100546
+WHERE NOT EXISTS (SELECT 1 FROM legiondb.Enterprise WHERE Enterprise.objectId = Enterprise_migrated_20240712100546.objectId);
+" 2>/dev/null || echo "Note: Enterprise migration table may not exist or data already migrated"
+
+echo "Fixing EnterpriseSchema with dynamic mappings..."
 docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e "
 USE legiondb;
+-- First ensure the EnterpriseSchema table has the correct structure
 DROP TABLE IF EXISTS EnterpriseSchema;
 CREATE TABLE EnterpriseSchema (
     id bigint NOT NULL AUTO_INCREMENT,
@@ -168,9 +186,24 @@ CREATE TABLE EnterpriseSchema (
     UNIQUE KEY ESCHUnique1 (enterpriseId, schemaKey)
 ) ENGINE=InnoDB;
 
-INSERT INTO EnterpriseSchema (enterpriseId, schemaKey, active) VALUES ('1', 'default', 1), ('1', 'legiondb', 1);
+-- Insert default mappings for enterprise '1'
+INSERT INTO EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate) VALUES 
+    ('1', 'default', 1, NOW(), NOW()),
+    ('1', 'legiondb', 1, NOW(), NOW());
+
+-- Dynamically create mappings for all enterprises in the Enterprise table to legiondb
+INSERT INTO EnterpriseSchema (objectId, active, createdBy, createdDate, lastModifiedBy, lastModifiedDate, 
+                              timeCreated, timeUpdated, enterpriseId, schemaKey)
+SELECT UUID(), 1, 'system', NOW(), 'system', NOW(), 0, 0, Enterprise.objectId, 'legiondb'
+FROM Enterprise
+WHERE Enterprise.objectId NOT IN (SELECT enterpriseId FROM EnterpriseSchema WHERE enterpriseId IS NOT NULL);
+
+-- Add specific mapping for the UUID that was causing issues (if not already covered)
+INSERT IGNORE INTO EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate)
+VALUES ('4f52834d-43bf-41ad-a3b5-a0c019b752af', 'legiondb0', 1, NOW(), NOW());
 
 USE legiondb0;
+-- Create the same structure in legiondb0
 DROP TABLE IF EXISTS EnterpriseSchema;
 CREATE TABLE EnterpriseSchema (
     id bigint NOT NULL AUTO_INCREMENT,
@@ -188,7 +221,23 @@ CREATE TABLE EnterpriseSchema (
     UNIQUE KEY ESCHUnique1 (enterpriseId, schemaKey)
 ) ENGINE=InnoDB;
 
-INSERT INTO EnterpriseSchema (enterpriseId, schemaKey, active) VALUES ('1', 'default', 1), ('1', 'legiondb0', 1);
+-- IMPORTANT: In legiondb0.EnterpriseSchema, ALL enterprises must map to 'legiondb0'
+-- This is where the application looks to determine schema routing
+
+-- Insert mappings for enterprise '1'  
+INSERT INTO EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate) VALUES 
+    ('1', 'legiondb', 1, NOW(), NOW()),
+    ('1', 'legiondb0', 1, NOW(), NOW());
+
+-- Dynamically create mappings for all enterprises to legiondb0 (NOT legiondb!)
+INSERT INTO EnterpriseSchema (objectId, active, createdBy, createdDate, lastModifiedBy, lastModifiedDate, 
+                              timeCreated, timeUpdated, enterpriseId, schemaKey)
+SELECT UUID(), 1, 'system', NOW(), 'system', NOW(), 0, 0, Enterprise.objectId, 'legiondb0'
+FROM legiondb.Enterprise;
+
+-- Add specific mapping for the UUID that was causing issues (if not already covered)
+INSERT IGNORE INTO EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate)
+VALUES ('4f52834d-43bf-41ad-a3b5-a0c019b752af', 'legiondb0', 1, NOW(), NOW());
 "
 
 echo "Verifying import..."
@@ -241,10 +290,18 @@ WHERE active = 1
 AND lastModifiedDate > '2000-01-01';"
 
 echo ""
-echo "EnterpriseSchema data:"
+echo "EnterpriseSchema mappings in legiondb:"
 docker exec $MYSQL_CONTAINER mysql -ulegion -plegionwork -e "
-SELECT enterpriseId, schemaKey, active, lastModifiedDate 
-FROM legiondb0.EnterpriseSchema;"
+SELECT enterpriseId, schemaKey, active 
+FROM legiondb.EnterpriseSchema
+ORDER BY enterpriseId, schemaKey;"
+
+echo ""
+echo "EnterpriseSchema mappings in legiondb0:"
+docker exec $MYSQL_CONTAINER mysql -ulegion -plegionwork -e "
+SELECT enterpriseId, schemaKey, active 
+FROM legiondb0.EnterpriseSchema
+ORDER BY enterpriseId, schemaKey;"
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"

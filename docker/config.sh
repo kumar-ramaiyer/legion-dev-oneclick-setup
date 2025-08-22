@@ -36,7 +36,7 @@ export MAILHOG_IMAGE="mailhog/mailhog:latest"
 export JAEGER_IMAGE="jaegertracing/all-in-one:latest"
 
 # MySQL Configuration
-export MYSQL_HOST="localhost"
+export MYSQL_HOST="127.0.0.1"
 export MYSQL_PORT="3306"
 export MYSQL_ROOT_PASSWORD="mysql123"
 export MYSQL_DATABASE="legiondb"

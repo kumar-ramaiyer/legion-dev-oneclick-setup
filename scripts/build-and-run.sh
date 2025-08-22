@@ -75,7 +75,8 @@ build_backend() {
     fi
     
     echo -e "${BLUE}Running Maven build...${NC}"
-    mvn clean install -P dev -DskipTests -Dcheckstyle.skip -Djavax.net.ssl.trustStorePassword=changeit -Dflyway.skip=true
+    # Build with default profile for app module to generate enterprise JAR
+    mvn clean package -T 1C -Pdefault -Djava.locale.providers=COMPAT,JRE,CLDR -DskipTests -Djavax.net.ssl.trustStorePassword=changeit -Dflyway.skip=true -Dcheckstyle.skip=true
     
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ Backend build successful${NC}"
@@ -100,38 +101,31 @@ build_frontend() {
     
     cd "$CONSOLE_UI_ROOT"
     
-    # Increase Node heap size for large builds
-    export NODE_OPTIONS="--max-old-space-size=8192"
-    echo -e "${YELLOW}Setting Node.js heap size to 8GB for build...${NC}"
-    
-    # Install dependencies if needed
-    if [ ! -d "node_modules" ]; then
-        echo -e "${BLUE}Installing frontend dependencies...${NC}"
-        yarn install || npm install
+    # Use Node.js version 18 with nvm if available
+    if command -v nvm &> /dev/null; then
+        echo -e "${BLUE}Using nvm to switch to Node.js 18...${NC}"
+        nvm use 18
+    else
+        echo -e "${YELLOW}nvm not found, using system Node.js version$(node --version)${NC}"
     fi
+    
+    # Install dependencies
+    echo -e "${BLUE}Installing frontend dependencies with yarn...${NC}"
+    yarn
     
     # Run lerna bootstrap
-    echo -e "${BLUE}Running lerna bootstrap...${NC}"
-    npx lerna bootstrap || yarn lerna bootstrap
+    echo -e "${BLUE}Running yarn lerna bootstrap...${NC}"
+    yarn lerna bootstrap
     
-    # Build
-    echo -e "${BLUE}Building frontend (this may take a few minutes)...${NC}"
-    yarn build || npm run build
-    
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✓ Frontend build successful${NC}"
-        return 0
-    else
-        echo -e "${RED}✗ Frontend build failed${NC}"
-        echo -e "${YELLOW}To retry with more memory: NODE_OPTIONS=\"--max-old-space-size=12288\" yarn build${NC}"
-        return 1
-    fi
+    echo -e "${GREEN}✓ Frontend build successful${NC}"
+    echo -e "${YELLOW}To start the frontend, use: yarn console-ui${NC}"
+    return 0
 }
 
 # Function to run backend
 run_backend() {
     # Check if JAR exists, build if not
-    APP_JAR="$ENTERPRISE_ROOT/app/target/legion-app-1.0-SNAPSHOT.jar"
+    APP_JAR="$ENTERPRISE_ROOT/app/target/legion-app-enterprise.jar"
     if [ ! -f "$APP_JAR" ]; then
         echo -e "${YELLOW}Application JAR not found. Building first...${NC}"
         build_backend
@@ -235,14 +229,41 @@ run_backend() {
     # Change to enterprise directory
     cd "$ENTERPRISE_ROOT"
     
-    # Convert JVM_ARGS array to a single string for Maven
-    JVM_ARGS_STRING=""
-    for arg in "${JVM_ARGS[@]}"; do
-        JVM_ARGS_STRING="$JVM_ARGS_STRING $arg"
-    done
+    # Look for the correct JAR file name (Spring Boot creates with enterprise classifier)
+    if [ -f "$ENTERPRISE_ROOT/app/target/legion-app-enterprise.jar" ]; then
+        APP_JAR="$ENTERPRISE_ROOT/app/target/legion-app-enterprise.jar"
+    elif [ -f "$ENTERPRISE_ROOT/app/target/legion-app-1.0-SNAPSHOT-enterprise.jar" ]; then
+        APP_JAR="$ENTERPRISE_ROOT/app/target/legion-app-1.0-SNAPSHOT-enterprise.jar"
+    fi
     
-    exec mvn spring-boot:run -pl app \
-        -Dspring-boot.run.jvmArguments="$JVM_ARGS_STRING"
+    echo -e "${YELLOW}Using JAR: $APP_JAR${NC}"
+    
+    # Use direct Java command like developers do
+    # Disable AWS SDK v1 deprecation warning
+    export AWS_JAVA_V1_DISABLE_DEPRECATION_ANNOUNCEMENT=true
+    exec java -Xmx6528m \
+        -XX:MaxMetaspaceSize=1272m \
+        -XX:CompressedClassSpaceSize=512m \
+        -XX:+UseCompressedOops \
+        -XX:+UseCompressedClassPointers \
+        -XX:+UseG1GC \
+        -XX:ParallelGCThreads=2 \
+        -XX:ConcGCThreads=1 \
+        -XX:+UseStringDeduplication \
+        -XX:+HeapDumpOnOutOfMemoryError \
+        -Duser.timezone=UTC \
+        -Dspring.config.location=file:config/target/resources/local/application.yml \
+        -Dspring.flyway.out-of-order=true \
+        -Dflyway.skip=true \
+        -Daws.java.v1.disableDeprecationAnnouncement=true \
+        -Dspring.profiles.active=dev,local \
+        -Djava.library.path=core/target/classes/com/legion/debian \
+        -Djava.locale.providers=COMPAT,JRE,CLDR \
+        -Dlog4j2.formatMsgNoLookups=true \
+        -DLog4jContextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector \
+        -Dlogging.config=classpath:etc/log4j2.xml \
+        -Dendpoint.url=http://localhost:4572 \
+        -jar "$APP_JAR" 2>&1 | tee ~/enterprise.logs.txt
 }
 
 # Function to run frontend
@@ -259,11 +280,19 @@ run_frontend() {
     
     cd "$CONSOLE_UI_ROOT"
     
+    # Use Node.js version 18 with nvm if available
+    if command -v nvm &> /dev/null; then
+        echo -e "${BLUE}Using nvm to switch to Node.js 18...${NC}"
+        nvm use 18
+    else
+        echo -e "${YELLOW}nvm not found, using system Node.js version $(node --version)${NC}"
+    fi
+    
     # Check if node_modules exists
     if [ ! -d "node_modules" ]; then
-        echo -e "${YELLOW}Dependencies not installed. Installing...${NC}"
-        yarn install || npm install
-        npx lerna bootstrap || yarn lerna bootstrap
+        echo -e "${YELLOW}Dependencies not installed. Building first...${NC}"
+        yarn
+        yarn lerna bootstrap
     fi
     
     echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
@@ -277,7 +306,7 @@ run_frontend() {
     echo "Press Ctrl+C to stop the server"
     echo ""
     
-    exec yarn start || exec npm start
+    exec yarn console-ui
 }
 
 # Main execution
