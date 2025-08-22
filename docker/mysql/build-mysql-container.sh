@@ -198,9 +198,9 @@ SELECT UUID(), 1, 'system', NOW(), 'system', NOW(), 0, 0, Enterprise.objectId, '
 FROM Enterprise
 WHERE Enterprise.objectId NOT IN (SELECT enterpriseId FROM EnterpriseSchema WHERE enterpriseId IS NOT NULL);
 
--- Add specific mapping for the UUID that was causing issues (if not already covered)
+-- Add specific mapping for the UUID that was causing issues (map to legiondb, not legiondb0!)
 INSERT IGNORE INTO EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate)
-VALUES ('4f52834d-43bf-41ad-a3b5-a0c019b752af', 'legiondb0', 1, NOW(), NOW());
+VALUES ('4f52834d-43bf-41ad-a3b5-a0c019b752af', 'legiondb', 1, NOW(), NOW());
 
 USE legiondb0;
 -- Create the same structure in legiondb0
@@ -221,23 +221,25 @@ CREATE TABLE EnterpriseSchema (
     UNIQUE KEY ESCHUnique1 (enterpriseId, schemaKey)
 ) ENGINE=InnoDB;
 
--- IMPORTANT: In legiondb0.EnterpriseSchema, ALL enterprises must map to 'legiondb0'
--- This is where the application looks to determine schema routing
+-- IMPORTANT: In legiondb0.EnterpriseSchema, enterprises must map to schemas that have datasources configured
+-- The application looks here to determine schema routing
+-- Since only 'legiondb' is configured in datasources.enterprise, all enterprises should map to 'legiondb'
 
--- Insert mappings for enterprise '1'  
+-- Insert mappings for enterprise '1' (system can use both)
 INSERT INTO EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate) VALUES 
     ('1', 'legiondb', 1, NOW(), NOW()),
     ('1', 'legiondb0', 1, NOW(), NOW());
 
--- Dynamically create mappings for all enterprises to legiondb0 (NOT legiondb!)
+-- Dynamically create mappings for all enterprises to 'legiondb' (which has a datasource configured)
 INSERT INTO EnterpriseSchema (objectId, active, createdBy, createdDate, lastModifiedBy, lastModifiedDate, 
                               timeCreated, timeUpdated, enterpriseId, schemaKey)
-SELECT UUID(), 1, 'system', NOW(), 'system', NOW(), 0, 0, Enterprise.objectId, 'legiondb0'
-FROM legiondb.Enterprise;
+SELECT UUID(), 1, 'system', NOW(), 'system', NOW(), 0, 0, Enterprise.objectId, 'legiondb'
+FROM legiondb.Enterprise
+WHERE Enterprise.objectId NOT IN (SELECT enterpriseId FROM EnterpriseSchema WHERE enterpriseId IS NOT NULL);
 
--- Add specific mapping for the UUID that was causing issues (if not already covered)
+-- Add specific mapping for the UUID that was causing issues (map to legiondb!)
 INSERT IGNORE INTO EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate)
-VALUES ('4f52834d-43bf-41ad-a3b5-a0c019b752af', 'legiondb0', 1, NOW(), NOW());
+VALUES ('4f52834d-43bf-41ad-a3b5-a0c019b752af', 'legiondb', 1, NOW(), NOW());
 "
 
 echo "Verifying import..."
