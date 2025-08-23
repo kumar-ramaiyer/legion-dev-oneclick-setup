@@ -150,25 +150,26 @@ docker exec $MYSQL_IMPORT_CONTAINER sh -c "mysql -u$MYSQL_USER -p$MYSQL_PASSWORD
 
 echo "Migrating Enterprise data if needed..."
 docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e "
--- Check if Enterprise table is empty but migrated table has data
-SET @enterprise_count = (SELECT COUNT(*) FROM legiondb.Enterprise);
-SET @migrated_count = (SELECT COUNT(*) FROM legiondb.Enterprise_migrated_20240712100546);
-
--- If Enterprise is empty but migrated table has data, copy it over
+-- The Enterprise table from the dump already has schemaKey column
+-- The Enterprise_migrated table does NOT have schemaKey column
+-- So we select only the columns that exist in the migrated table
 INSERT INTO legiondb.Enterprise (id, active, createdBy, externalId, objectId, timeCreated, timeUpdated, 
                                 displayName, name, createdDate, lastModifiedBy, lastModifiedDate, 
-                                logoUrl, firstDayOfWeek, splashUrl, enterpriseType, defaultLocationPicUrl, schemaKey)
+                                logoUrl, firstDayOfWeek, splashUrl, enterpriseType, defaultLocationPicUrl)
 SELECT id, active, createdBy, externalId, objectId, timeCreated, timeUpdated, 
        displayName, name, createdDate, lastModifiedBy, lastModifiedDate, 
-       logoUrl, firstDayOfWeek, splashUrl, enterpriseType, defaultLocationPicUrl, 'legiondb'
+       logoUrl, firstDayOfWeek, splashUrl, enterpriseType, defaultLocationPicUrl
 FROM legiondb.Enterprise_migrated_20240712100546
 WHERE NOT EXISTS (SELECT 1 FROM legiondb.Enterprise WHERE Enterprise.objectId = Enterprise_migrated_20240712100546.objectId);
-" 2>/dev/null || echo "Note: Enterprise migration table may not exist or data already migrated"
+
+-- After migration, update all enterprises to use 'legiondb' as their schemaKey
+UPDATE legiondb.Enterprise SET schemaKey = 'legiondb' WHERE schemaKey IS NULL OR schemaKey = '';
+" 2>&1 | grep -v "Warning" || echo "Note: Enterprise migration completed or table may not exist"
 
 echo "Fixing EnterpriseSchema with dynamic mappings..."
 docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e "
 USE legiondb;
--- First ensure the EnterpriseSchema table has the correct structure
+-- Drop and recreate to ensure idempotent behavior
 DROP TABLE IF EXISTS EnterpriseSchema;
 CREATE TABLE EnterpriseSchema (
     id bigint NOT NULL AUTO_INCREMENT,
@@ -198,12 +199,12 @@ SELECT UUID(), 1, 'system', NOW(), 'system', NOW(), 0, 0, Enterprise.objectId, '
 FROM Enterprise
 WHERE Enterprise.objectId NOT IN (SELECT enterpriseId FROM EnterpriseSchema WHERE enterpriseId IS NOT NULL);
 
--- Add specific mapping for the UUID that was causing issues (if not already covered)
+-- Add specific mapping for the UUID that was causing issues (map to legiondb, not legiondb0!)
 INSERT IGNORE INTO EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate)
-VALUES ('4f52834d-43bf-41ad-a3b5-a0c019b752af', 'legiondb0', 1, NOW(), NOW());
+VALUES ('4f52834d-43bf-41ad-a3b5-a0c019b752af', 'legiondb', 1, NOW(), NOW());
 
 USE legiondb0;
--- Create the same structure in legiondb0
+-- Drop and recreate to ensure idempotent behavior
 DROP TABLE IF EXISTS EnterpriseSchema;
 CREATE TABLE EnterpriseSchema (
     id bigint NOT NULL AUTO_INCREMENT,
@@ -221,24 +222,245 @@ CREATE TABLE EnterpriseSchema (
     UNIQUE KEY ESCHUnique1 (enterpriseId, schemaKey)
 ) ENGINE=InnoDB;
 
--- IMPORTANT: In legiondb0.EnterpriseSchema, ALL enterprises must map to 'legiondb0'
--- This is where the application looks to determine schema routing
+-- IMPORTANT: In legiondb0.EnterpriseSchema, enterprises must map to schemas that have datasources configured
+-- The application looks here to determine schema routing
+-- Since only 'legiondb' is configured in datasources.enterprise, all enterprises should map to 'legiondb'
 
--- Insert mappings for enterprise '1'  
+-- Insert mappings for enterprise '1' (system can use both)
 INSERT INTO EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate) VALUES 
     ('1', 'legiondb', 1, NOW(), NOW()),
     ('1', 'legiondb0', 1, NOW(), NOW());
 
--- Dynamically create mappings for all enterprises to legiondb0 (NOT legiondb!)
+-- Dynamically create mappings for all enterprises to 'legiondb' (which has a datasource configured)
 INSERT INTO EnterpriseSchema (objectId, active, createdBy, createdDate, lastModifiedBy, lastModifiedDate, 
                               timeCreated, timeUpdated, enterpriseId, schemaKey)
-SELECT UUID(), 1, 'system', NOW(), 'system', NOW(), 0, 0, Enterprise.objectId, 'legiondb0'
-FROM legiondb.Enterprise;
+SELECT UUID(), 1, 'system', NOW(), 'system', NOW(), 0, 0, Enterprise.objectId, 'legiondb'
+FROM legiondb.Enterprise
+WHERE Enterprise.objectId NOT IN (SELECT enterpriseId FROM EnterpriseSchema WHERE enterpriseId IS NOT NULL);
 
--- Add specific mapping for the UUID that was causing issues (if not already covered)
+-- Add specific mapping for ALL known missing enterprise IDs
+-- These are referenced by the application but not in the database dump
 INSERT IGNORE INTO EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate)
-VALUES ('4f52834d-43bf-41ad-a3b5-a0c019b752af', 'legiondb0', 1, NOW(), NOW());
+VALUES 
+    ('4f52834d-43bf-41ad-a3b5-a0c019b752af', 'legiondb', 1, NOW(), NOW()),
+    ('73146a92-da7a-4ffc-b03b-aeb0b2b4b08f', 'legiondb', 1, NOW(), NOW()),
+    ('53d5e5cd-cfea-4bbe-a42b-565fc9fcb3f3', 'legiondb', 1, NOW(), NOW()),
+    ('885ce198-9c98-4b47-845c-4b86ec592367', 'legiondb', 1, NOW(), NOW()),
+    ('aa3f8aff-a6e4-4970-a2ca-b6a1454de9a5', 'legiondb', 1, NOW(), NOW()),
+    ('4f5bb27e-85e2-4310-b555-5aa58519daf0', 'legiondb', 1, NOW(), NOW());
+
+-- Add placeholder enterprises for system-expected enterprises that are not in the dump
+-- These seem to be referenced by the application but don't exist in the data
+INSERT IGNORE INTO legiondb.Enterprise (
+    objectId, name, displayName, active, schemaKey, 
+    timeCreated, timeUpdated, createdDate, lastModifiedDate
+) VALUES 
+    ('73146a92-da7a-4ffc-b03b-aeb0b2b4b08f', 
+     'placeholder1', 
+     'Placeholder Enterprise 1', 
+     1, 
+     'legiondb',
+     UNIX_TIMESTAMP() * 1000,
+     UNIX_TIMESTAMP() * 1000,
+     NOW(),
+     NOW()),
+    ('aa3f8aff-a6e4-4970-a2ca-b6a1454de9a5', 
+     'placeholder2', 
+     'Placeholder Enterprise 2', 
+     1, 
+     'legiondb',
+     UNIX_TIMESTAMP() * 1000,
+     UNIX_TIMESTAMP() * 1000,
+     NOW(),
+     NOW()),
+    ('4f5bb27e-85e2-4310-b555-5aa58519daf0', 
+     'placeholder3', 
+     'Placeholder Enterprise 3', 
+     1, 
+     'legiondb',
+     UNIX_TIMESTAMP() * 1000,
+     UNIX_TIMESTAMP() * 1000,
+     NOW(),
+     NOW());
 "
+
+echo "Fixing known migration ordering issues..."
+# The developer confirmed these migrations are out of order and need manual fixes
+
+# Fix 1: V50_57.0.1753310683108 tries to add column to AccrualType before it exists
+# V51_38.0.1746976679999 creates the AccrualType table but runs after V50
+# Note: Migrations run on BOTH legiondb and legiondb0, so we need to fix both
+
+echo "Creating AccrualType table in legiondb for V50_57 migration..."
+docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD legiondb -e "
+-- Create AccrualType with all columns including what V50_57 wants to add
+CREATE TABLE IF NOT EXISTS AccrualType (
+   id bigint not null auto_increment,
+   objectId varchar(36),
+   active bit not null,
+   createdBy varchar(50),
+   createdDate datetime(6),
+   externalId varchar(64),
+   lastModifiedBy varchar(50),
+   lastModifiedDate datetime(6),
+   timeCreated bigint not null,
+   timeUpdated bigint not null,
+   enterpriseId varchar(36) not null,
+   accrualCode varchar(255),
+   description varchar(255),
+   name varchar(32),
+   payCode varchar(255),
+   payCodeOT varchar(255),
+   unit varchar(32),
+   includeForPayfile bit,  -- Column that V50_57 wants to add
+   primary key (id)
+) engine=InnoDB;
+
+-- Mark the problematic V50_57 migration as successful so Flyway skips it
+UPDATE flyway_schema_history 
+SET success = 1 
+WHERE version = '50.57.0.1753310683108' 
+AND success = 0;
+
+SELECT 'AccrualType fix applied to legiondb' as status;
+" 2>&1 | grep -v "Warning" || true
+
+echo "Creating AccrualType table in legiondb0 for V50_57 migration..."
+docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD legiondb0 -e "
+-- Create AccrualType with all columns including what V50_57 wants to add
+CREATE TABLE IF NOT EXISTS AccrualType (
+   id bigint not null auto_increment,
+   objectId varchar(36),
+   active bit not null,
+   createdBy varchar(50),
+   createdDate datetime(6),
+   externalId varchar(64),
+   lastModifiedBy varchar(50),
+   lastModifiedDate datetime(6),
+   timeCreated bigint not null,
+   timeUpdated bigint not null,
+   enterpriseId varchar(36) not null,
+   accrualCode varchar(255),
+   description varchar(255),
+   name varchar(32),
+   payCode varchar(255),
+   payCodeOT varchar(255),
+   unit varchar(32),
+   includeForPayfile bit,  -- Column that V50_57 wants to add
+   primary key (id)
+) engine=InnoDB;
+
+-- Mark the problematic V50_57 migration as successful so Flyway skips it
+UPDATE flyway_schema_history 
+SET success = 1 
+WHERE version = '50.57.0.1753310683108' 
+AND success = 0;
+
+SELECT 'AccrualType fix applied to legiondb0' as status;
+" 2>&1 | grep -v "Warning" || true
+
+# Check if there are any other failed migrations from the import
+FAILED_COUNT=$(docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -N -e "
+SELECT COUNT(*) FROM legiondb.flyway_schema_history WHERE success = 0;" 2>/dev/null || echo "0")
+
+if [ "$FAILED_COUNT" -gt 0 ]; then
+    echo "Note: Found $FAILED_COUNT other failed migrations in the imported database"
+    echo "These may need to be handled when running the application."
+    
+    # Show which migrations are still failed
+    docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e "
+    SELECT version, script 
+    FROM legiondb.flyway_schema_history 
+    WHERE success = 0
+    ORDER BY installed_rank
+    LIMIT 5;" 2>&1 | grep -v "Warning" || true
+else
+    echo "All known migration issues fixed"
+fi
+
+echo "Ensuring all enterprise mappings are complete..."
+docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e "
+-- Add mappings for common test enterprise IDs found in codebase
+-- These are used in tests, SSO, and various modules
+INSERT IGNORE INTO legiondb0.EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate)
+VALUES 
+-- Most common test enterprise IDs
+('c1f8073b-aed0-4f9b-b7f8-9e327f6f2931', 'legiondb', 1, NOW(), NOW()),
+('781c5d8f-fd6d-47a5-888a-abd1d3a6961c', 'legiondb', 1, NOW(), NOW()),
+('4f31d62f-b3cd-4b67-87ab-40b39c9c5626', 'legiondb', 1, NOW(), NOW()),
+('67840cca-5c4a-4411-8c6a-211fe631eb10', 'legiondb', 1, NOW(), NOW()),
+('2d8bebbd-32fd-4157-a0db-b97fb3ffe6ce', 'legiondb', 1, NOW(), NOW()),
+-- System/Production-like enterprise IDs
+('e2859ef5-a9d3-4308-b3eb-62153f51da64', 'legiondb', 1, NOW(), NOW()),
+('df72d579-699d-4594-9d36-2d6a5c95ce84', 'legiondb', 1, NOW(), NOW()),
+('8008956f-7118-48fb-a816-1ff95ce60d2c', 'legiondb', 1, NOW(), NOW()),
+('ff0ebe2d-2fc1-465e-a58e-73e2e6f4a9f6', 'legiondb', 1, NOW(), NOW()),
+('b90d923c-cce5-4c85-b9b7-a0d87b1de285', 'legiondb', 1, NOW(), NOW()),
+-- Dev environment enterprise IDs
+('43e4d625-3ee0-4b89-83b0-a0a09501b7e5', 'legiondb', 1, NOW(), NOW()),
+('fac86359-4880-45c3-943e-d414abbdf7aa', 'legiondb', 1, NOW(), NOW()),
+('0f47be79-f695-4c46-a7c8-024dff987804', 'legiondb', 1, NOW(), NOW()),
+('8e86733d-3fc9-403e-9bc1-047417d7cac7', 'legiondb', 1, NOW(), NOW()),
+-- Additional test IDs from various modules
+('bfc86b74-7e77-4c44-a3d8-b37e14a8798f', 'legiondb', 1, NOW(), NOW()),
+('1e7c3e6f-3aa7-4a91-b8f2-d1c3c0e7f9b5', 'legiondb', 1, NOW(), NOW()),
+('51e7a3c6-7e0f-4b9d-8d3a-f2c7e9b1a5d8', 'legiondb', 1, NOW(), NOW()),
+-- SSO module enterprise IDs
+('f15e7e47-005c-4cc7-b0f5-c2c87c5cb8ff', 'legiondb', 1, NOW(), NOW()),
+('8aab0814-52af-41cb-b263-ce6181571cae', 'legiondb', 1, NOW(), NOW());
+
+SELECT 'Added test enterprise mappings:' as status, ROW_COUNT() as count;
+
+-- Now add any remaining enterprises from actual data
+-- Create a catch-all rule: any enterprise without a mapping gets 'legiondb'
+-- This prevents MULTISCHEMA errors for any missing enterprises
+INSERT IGNORE INTO legiondb0.EnterpriseSchema (enterpriseId, schemaKey, active, createdDate, lastModifiedDate)
+SELECT DISTINCT e.enterpriseId, 'legiondb', 1, NOW(), NOW()
+FROM (
+    -- Get all enterprise IDs from various tables that might reference them
+    SELECT DISTINCT enterpriseId FROM legiondb.Worker WHERE enterpriseId IS NOT NULL
+    UNION
+    SELECT DISTINCT enterpriseId FROM legiondb.Location WHERE enterpriseId IS NOT NULL
+    UNION
+    SELECT DISTINCT enterpriseId FROM legiondb.Shift WHERE enterpriseId IS NOT NULL
+    UNION
+    SELECT DISTINCT objectId as enterpriseId FROM legiondb.Enterprise WHERE objectId IS NOT NULL
+) e
+WHERE NOT EXISTS (
+    SELECT 1 FROM legiondb0.EnterpriseSchema es 
+    WHERE es.enterpriseId = e.enterpriseId
+);
+
+SELECT 'Added mappings from data for' as status, ROW_COUNT() as count;
+
+-- Create placeholder Enterprise records for test enterprise IDs that SSO and other modules expect
+INSERT IGNORE INTO legiondb.Enterprise (
+    active, createdBy, externalId, objectId, 
+    createdDate, lastModifiedDate, timeCreated, timeUpdated, name, displayName
+)
+VALUES
+-- Most common test enterprise IDs
+(1, 'system', 'TEST-c1f8073b', 'c1f8073b-aed0-4f9b-b7f8-9e327f6f2931', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Test-Enterprise-1', 'Test Enterprise 1'),
+(1, 'system', 'TEST-781c5d8f', '781c5d8f-fd6d-47a5-888a-abd1d3a6961c', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Test-Enterprise-2', 'Test Enterprise 2'),
+(1, 'system', 'TEST-67840cca', '67840cca-5c4a-4411-8c6a-211fe631eb10', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Test-Enterprise-3', 'Test Enterprise 3'),
+(1, 'system', 'TEST-2d8bebbd', '2d8bebbd-32fd-4157-a0db-b97fb3ffe6ce', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Test-Enterprise-4', 'Test Enterprise 4'),
+-- System/Production-like enterprise IDs
+(1, 'system', 'SYS-e2859ef5', 'e2859ef5-a9d3-4308-b3eb-62153f51da64', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'System-Enterprise-1', 'System Enterprise 1'),
+(1, 'system', 'SYS-df72d579', 'df72d579-699d-4594-9d36-2d6a5c95ce84', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Compass-Enterprise', 'Compass Enterprise'),
+(1, 'system', 'SYS-8008956f', '8008956f-7118-48fb-a816-1ff95ce60d2c', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Los-Gatos-Enterprise', 'Los Gatos Enterprise'),
+(1, 'system', 'SYS-ff0ebe2d', 'ff0ebe2d-2fc1-465e-a58e-73e2e6f4a9f6', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Integration-Test', 'Integration Test'),
+(1, 'system', 'SYS-b90d923c', 'b90d923c-cce5-4c85-b9b7-a0d87b1de285', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Engagement-Test', 'Engagement Test'),
+-- Dev environment enterprise IDs
+(1, 'system', 'DEV-43e4d625', '43e4d625-3ee0-4b89-83b0-a0a09501b7e5', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Dev-Enterprise-1', 'Dev Enterprise 1'),
+(1, 'system', 'DEV-fac86359', 'fac86359-4880-45c3-943e-d414abbdf7aa', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Dev-Enterprise-2', 'Dev Enterprise 2'),
+(1, 'system', 'DEV-0f47be79', '0f47be79-f695-4c46-a7c8-024dff987804', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Dev-Enterprise-3', 'Dev Enterprise 3'),
+(1, 'system', 'DEV-8e86733d', '8e86733d-3fc9-403e-9bc1-047417d7cac7', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Mock-Store', 'Mock Store'),
+-- SSO module enterprise
+(1, 'system', 'SSO-f15e7e47', 'f15e7e47-005c-4cc7-b0f5-c2c87c5cb8ff', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'SSO-Enterprise-1', 'SSO Enterprise 1'),
+(1, 'system', 'KEY-8aab0814', '8aab0814-52af-41cb-b263-ce6181571cae', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'KeyManager-Enterprise', 'KeyManager Enterprise');
+
+SELECT 'Created test Enterprise records:' as status, ROW_COUNT() as count;
+" 2>&1 | grep -v "Warning" || true
 
 echo "Verifying import..."
 docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD -e "
