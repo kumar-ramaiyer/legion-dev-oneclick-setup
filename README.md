@@ -34,9 +34,12 @@ cd ../..
    # ⏰ WAIT 15-20 MINUTES for full startup!
    ```
 
-2. **Check Backend is Ready**
+2. **Monitor Backend Readiness** (in a separate terminal)
    ```bash
-   # Keep running this until it returns {"status":"UP"}
+   # Automated monitoring - will notify when ready:
+   ./scripts/check-backend-ready.sh
+   
+   # OR manually check:
    curl http://localhost:8080/actuator/health
    ```
 
@@ -183,6 +186,9 @@ The build script:
 ```
 legion-dev-oneclick-setup/
 ├── setup.sh                   # ONE COMMAND entry point
+├── scripts/
+│   ├── build-and-run.sh     # Build and run backend/frontend
+│   └── check-backend-ready.sh # Automated backend readiness checker
 ├── docker/
 │   ├── docker-compose.yml    # All services configuration
 │   ├── Caddyfile            # HTTPS routing
@@ -217,11 +223,25 @@ cd legion-dev-oneclick-setup
 
 ### 🔍 How to Know Backend is Ready
 
-Watch for these indicators:
+#### 🚀 **Automated Method (Recommended)**
+Use our backend readiness checker script that monitors both logs and health endpoint:
+```bash
+# In a separate terminal, run:
+./scripts/check-backend-ready.sh
+
+# This script will:
+# - Monitor the health endpoint every 10 seconds
+# - Check logs for startup indicators
+# - Show progress updates (Flyway migrations, module loading)
+# - Notify you when backend is fully ready
+# - Exit automatically when backend is UP
+```
+
+#### Manual Methods:
 
 1. **Health Check URL** (quickest method):
    ```bash
-   # Keep checking this URL until it returns data:
+   # Keep checking this URL until it returns {"status":"UP"}
    curl http://localhost:8080/actuator/health
    ```
 
