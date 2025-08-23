@@ -2,7 +2,7 @@
 
 # Legion Build and Run Script
 # This script builds and/or runs the Legion backend and frontend applications
-# Usage: ./build-and-run.sh [command]
+# Usage: ./build-and-run.sh [command] [options]
 # Commands:
 #   build-all      - Build both backend and frontend
 #   build-backend  - Build only backend
@@ -10,6 +10,8 @@
 #   run-backend    - Run backend (builds first if needed)
 #   run-frontend   - Run frontend development server
 #   (no args)      - Same as run-backend for backward compatibility
+# Options:
+#   --skip-flyway  - Skip Flyway database migrations (use if DB already migrated)
 
 # Colors for output
 RED='\033[0;31m'
@@ -18,12 +20,32 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Parse command
+# Parse command and options
 COMMAND="${1:-run-backend}"
+SKIP_FLYWAY=false
 
-# For backward compatibility
-if [ "$1" == "--build-only" ]; then
-    COMMAND="build-backend"
+# Parse additional arguments
+for arg in "$@"; do
+    case $arg in
+        --skip-flyway)
+            SKIP_FLYWAY=true
+            shift
+            ;;
+        --build-only)
+            # For backward compatibility
+            COMMAND="build-backend"
+            shift
+            ;;
+    esac
+done
+
+# Set Flyway option based on flag
+if [ "$SKIP_FLYWAY" = true ]; then
+    FLYWAY_OPTION="-Dflyway.skip=true"
+    echo -e "${YELLOW}Note: Flyway migrations will be skipped${NC}"
+else
+    FLYWAY_OPTION=""
+    echo -e "${GREEN}Flyway migrations will run${NC}"
 fi
 
 # Get the directory where this script is located
@@ -71,12 +93,12 @@ build_backend() {
     if [ ! -f "$ENTERPRISE_ROOT/config/target/resources/local/application.yml" ]; then
         echo -e "${YELLOW}Warning: application.yml not found${NC}"
         echo "Building configuration files..."
-        mvn clean compile -P dev -pl config -Dflyway.skip=true
+        mvn clean compile -P dev -pl config $FLYWAY_OPTION
     fi
     
     echo -e "${BLUE}Running Maven build...${NC}"
     # Build with default profile for app module to generate enterprise JAR
-    mvn clean package -T 1C -Pdefault -Djava.locale.providers=COMPAT,JRE,CLDR -DskipTests -Djavax.net.ssl.trustStorePassword=changeit -Dflyway.skip=true -Dcheckstyle.skip=true
+    mvn clean package -T 1C -Pdefault -Djava.locale.providers=COMPAT,JRE,CLDR -DskipTests -Djavax.net.ssl.trustStorePassword=changeit $FLYWAY_OPTION -Dcheckstyle.skip=true
     
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ Backend build successful${NC}"
@@ -185,10 +207,12 @@ run_backend() {
         # Async logging
         "-DLog4jContextSelector=org.apache.logging.log4j.core.async.AsyncLoggerContextSelector"
         "-Dlogging.config=$ENTERPRISE_ROOT/config/target/resources/log4j2.xml"
-        
-        # Flyway skip (if database is pre-loaded)
-        "-Dflyway.skip=true"
     )
+    
+    # Add Flyway option if specified
+    if [ ! -z "$FLYWAY_OPTION" ]; then
+        JVM_ARGS+=("$FLYWAY_OPTION")
+    fi
     
     # Show what we're running
     echo -e "${YELLOW}Starting backend with the following configuration:${NC}"
@@ -254,7 +278,7 @@ run_backend() {
         -Duser.timezone=UTC \
         -Dspring.config.location=file:config/target/resources/local/application.yml \
         -Dspring.flyway.out-of-order=true \
-        -Dflyway.skip=true \
+        $FLYWAY_OPTION \
         -Daws.java.v1.disableDeprecationAnnouncement=true \
         -Dspring.profiles.active=dev,local \
         -Djava.library.path=core/target/classes/com/legion/debian \
@@ -344,7 +368,15 @@ case "$COMMAND" in
         
     *)
         echo -e "${RED}Unknown command: $COMMAND${NC}"
-        echo "Usage: $0 [build-all|build-backend|build-frontend|run-backend|run-frontend]"
+        echo "Usage: $0 [build-all|build-backend|build-frontend|run-backend|run-frontend] [OPTIONS]"
+        echo ""
+        echo "Options:"
+        echo "  --skip-flyway    Skip Flyway database migrations"
+        echo ""
+        echo "Examples:"
+        echo "  $0 run-backend              # Run backend with Flyway migrations"
+        echo "  $0 run-backend --skip-flyway # Run backend without Flyway migrations"
+        echo "  $0 build-backend --skip-flyway # Build backend without Flyway"
         exit 1
         ;;
 esac
