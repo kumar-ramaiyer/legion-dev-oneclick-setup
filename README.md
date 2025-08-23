@@ -25,6 +25,31 @@ cd ../..
 # Frontend: ./scripts/build-and-run.sh run-frontend
 ```
 
+## ⏱️ Quick Start Guide - IMPORTANT TIMING INFO
+
+### Step-by-Step After Setup:
+1. **Start Backend First** (15-20 min startup)
+   ```bash
+   ./scripts/build-and-run.sh run-backend
+   # ⏰ WAIT 15-20 MINUTES for full startup!
+   ```
+
+2. **Check Backend is Ready**
+   ```bash
+   # Keep running this until it returns {"status":"UP"}
+   curl http://localhost:8080/actuator/health
+   ```
+
+3. **Start Frontend** (only after backend is ready)
+   ```bash
+   ./scripts/build-and-run.sh run-frontend
+   # Ready in ~1 minute
+   ```
+
+4. **Login to Application**
+   - Go to: https://legion.local
+   - Get credentials from: [Test Accounts Wiki](https://legiontech.atlassian.net/wiki/spaces/HQS/pages/1320943704/Login+Account)
+
 ## 🐳 What Gets Set Up
 
 ### Docker Services (All Automatic)
@@ -32,9 +57,18 @@ cd ../..
 - **Elasticsearch 8.0** for search and analytics
 - **Redis Master/Slave** for distributed locking
 - **Caddy** reverse proxy with automatic HTTPS
-- **LocalStack** for AWS services emulation
+- **LocalStack** for AWS services emulation (S3, SQS auto-configured)
 - **MailHog** for email testing
 - **Jaeger** for distributed tracing
+
+### LocalStack AWS Services (Auto-Configured)
+The setup automatically creates:
+- **S3 Buckets**:
+  - `localstack-legion-data-service`
+  - `localstack-legion-historical-data`
+- **SQS Queues**:
+  - `legion-email-queue`
+  - `legion-notification-queue`
 
 ### Development Tools (Installed if Missing)
 - **Docker Desktop** with optimized settings
@@ -43,6 +77,7 @@ cd ../..
 - **Node.js 18** with Yarn
 - **Git** with SSH keys
 - **SSL Certificates** (mkcert)
+- **AWS CLI** with awscli-local for LocalStack
 
 ## 🔒 Automatic HTTPS Setup
 
@@ -165,19 +200,71 @@ legion-dev-oneclick-setup/
 
 After setup completes, both backend and frontend are ALREADY BUILT. You just need to run them:
 
+### ⚠️ IMPORTANT: Backend Startup Time
+**The backend takes 15-20 minutes to start** on first run due to:
+- Flyway database migrations (automatic, cannot be skipped)
+- Spring Boot initialization with 100+ modules
+- Jetty server startup and warmup
+
+**Wait for the backend to fully start before launching the frontend!**
+
 ### Backend (Enterprise)
 ```bash
 cd legion-dev-oneclick-setup
 ./scripts/build-and-run.sh run-backend
-# API available at http://localhost:8080
+# Note: First startup takes 15-20 minutes! Be patient.
 ```
+
+### 🔍 How to Know Backend is Ready
+
+Watch for these indicators:
+
+1. **Health Check URL** (quickest method):
+   ```bash
+   # Keep checking this URL until it returns data:
+   curl http://localhost:8080/actuator/health
+   ```
+
+2. **Console Log Indicators** - Look for these messages:
+   ```
+   # ✅ When you see this, the backend is READY:
+   "Started SpringWebServer in XXX seconds"
+   
+   # OR look for:
+   "Jetty started on port(s) 8080"
+   
+   # OR the Jetty ASCII art:
+   ╭──────────────────────────────────────╮
+   │   Jetty Server Started Successfully  │
+   ╰──────────────────────────────────────╯
+   ```
+
+3. **API Endpoints to Test**:
+   ```bash
+   # Once started, verify with:
+   curl http://localhost:8080/actuator/health
+   curl http://localhost:8080/api/v1/ping
+   ```
 
 ### Frontend (Console-UI)
 ```bash
+# ONLY start after backend is fully running!
 cd legion-dev-oneclick-setup
 ./scripts/build-and-run.sh run-frontend
 # UI available at http://localhost:3000
 ```
+
+### 🔐 Login Credentials
+
+Once both backend and frontend are running, use these test accounts:
+
+**For full list of test accounts and passwords, see:**
+[Legion Test Accounts Wiki](https://legiontech.atlassian.net/wiki/spaces/HQS/pages/1320943704/Login+Account)
+
+Common test accounts:
+- Various role-based test users available
+- Check the wiki link above for specific usernames and passwords
+- Different accounts have different permission levels for testing
 
 ### Build Commands
 ```bash
@@ -195,6 +282,7 @@ cd legion-dev-oneclick-setup
 - Main App: `https://legion.local` (via Caddy proxy)
 - Backend Direct: `http://localhost:8080`
 - Frontend Direct: `http://localhost:3000`
+- Health Check: `http://localhost:8080/actuator/health`
 - All services route through Caddy for HTTPS
 
 ## ✅ Verification
@@ -223,10 +311,9 @@ redis-cli ping
 
 ### Backend Build Fails?
 ```bash
-# The setup uses run-backend.sh which skips Flyway migrations
 # If build fails, try manually:
 cd ~/Development/legion/code/enterprise
-mvn clean install -P dev -DskipTests -Dflyway.skip=true
+mvn clean install -P dev -DskipTests
 ```
 
 ### Frontend Build Fails?
@@ -251,6 +338,25 @@ cd docker/mysql
 lsof -i :3306  # MySQL
 lsof -i :8080  # Backend
 lsof -i :3000  # Frontend
+```
+
+### LocalStack/AWS Errors?
+```bash
+# If you see AWS connection errors in backend logs:
+# 1. Verify LocalStack is running:
+docker ps | grep localstack
+
+# 2. Create/verify S3 buckets and SQS queues:
+awslocal s3 ls
+awslocal s3 mb s3://localstack-legion-data-service
+awslocal s3 mb s3://localstack-legion-historical-data
+
+awslocal sqs list-queues
+awslocal sqs create-queue --queue-name legion-email-queue
+awslocal sqs create-queue --queue-name legion-notification-queue
+
+# 3. Test LocalStack connectivity:
+curl http://localhost:4566/_localstack/health
 ```
 
 ### Reset Everything?
