@@ -74,7 +74,7 @@ fi
 #    - Added connection timeout of 5000ms
 #
 # 2. Cache Bootstrap Timeout - "PLT_TASK cache not ready after 10 minutes"
-#    - Increased timeout from 10 to 20 minutes
+#    - Increased timeout from 10 to 60 minutes (v13: was 20, now 60)
 #    - Enabled parallel cache loading
 #    - Added batch size configuration
 #
@@ -96,9 +96,9 @@ ensure_config_optimizations() {
         return 0
     fi
     
-    # Check if optimizations already applied
-    if grep -q "datasource_max_active: 150" "$SOURCE_VALUES" 2>/dev/null; then
-        echo -e "${GREEN}✓ Config optimizations already applied${NC}"
+    # Check if optimizations already applied (v13: check for 60 minute timeout)
+    if grep -q "cache_bootstrap_timeout: 60" "$SOURCE_VALUES" 2>/dev/null; then
+        echo -e "${GREEN}✓ Config optimizations already applied (v13)${NC}"
         return 0
     fi
     
@@ -121,9 +121,13 @@ ensure_config_optimizations() {
         if ! grep -q "datasource_max_wait:" "$SOURCE_VALUES"; then
             echo "datasource_max_wait: 5000  # Connection timeout in ms" >> "$SOURCE_VALUES"
         fi
-        if ! grep -q "cache_bootstrap_timeout:" "$SOURCE_VALUES"; then
+        
+        # Update cache timeout if it exists, otherwise add it
+        if grep -q "cache_bootstrap_timeout:" "$SOURCE_VALUES"; then
+            sed -i.bak 's/cache_bootstrap_timeout:.*/cache_bootstrap_timeout: 60  # Increased to 60 minutes (v13)/' "$SOURCE_VALUES"
+        else
             echo -e "\n# Cache configuration optimizations" >> "$SOURCE_VALUES"
-            echo "cache_bootstrap_timeout: 20  # Increased from 10 minutes" >> "$SOURCE_VALUES"
+            echo "cache_bootstrap_timeout: 60  # Increased to 60 minutes (v13)" >> "$SOURCE_VALUES"
             echo "cache_bootstrap_parallel: true" >> "$SOURCE_VALUES"
             echo "cache_bootstrap_batch_size: 50" >> "$SOURCE_VALUES"
         fi
@@ -138,7 +142,7 @@ datasource_min_size: 10     # Increased from 5
 datasource_max_wait: 5000   # Connection timeout in ms
 
 # Cache configuration  
-cache_bootstrap_timeout: 20  # Increased from 10 minutes
+cache_bootstrap_timeout: 60  # Increased to 60 minutes (v13)
 cache_bootstrap_parallel: true
 cache_bootstrap_batch_size: 50
 
