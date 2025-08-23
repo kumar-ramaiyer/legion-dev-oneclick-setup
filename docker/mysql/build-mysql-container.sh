@@ -407,7 +407,14 @@ VALUES
 ('51e7a3c6-7e0f-4b9d-8d3a-f2c7e9b1a5d8', 'legiondb', 1, NOW(), NOW()),
 -- SSO module enterprise IDs
 ('f15e7e47-005c-4cc7-b0f5-c2c87c5cb8ff', 'legiondb', 1, NOW(), NOW()),
-('8aab0814-52af-41cb-b263-ce6181571cae', 'legiondb', 1, NOW(), NOW());
+('8aab0814-52af-41cb-b263-ce6181571cae', 'legiondb', 1, NOW(), NOW()),
+-- KeyManager enterprise ID (found during runtime)
+('e0a2993c-95a6-41c8-b26b-d6e1bbbd03d2', 'legiondb', 1, NOW(), NOW()),
+-- Additional SSO enterprise IDs (found during runtime)
+('dfedf4ac-4cc6-44fa-886f-62a61d9577fe', 'legiondb', 1, NOW(), NOW()),
+('5227cf62-1d99-4b51-a5e9-aab03046a9a9', 'legiondb', 1, NOW(), NOW()),
+('27e31db4-1b5b-4e90-b0d1-659a2da891b6', 'legiondb', 1, NOW(), NOW()),
+('bade788c-753f-43e0-a40d-e83ae227d86a', 'legiondb', 1, NOW(), NOW());
 
 SELECT 'Added test enterprise mappings:' as status, ROW_COUNT() as count;
 
@@ -457,7 +464,14 @@ VALUES
 (1, 'system', 'DEV-8e86733d', '8e86733d-3fc9-403e-9bc1-047417d7cac7', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'Mock-Store', 'Mock Store'),
 -- SSO module enterprise
 (1, 'system', 'SSO-f15e7e47', 'f15e7e47-005c-4cc7-b0f5-c2c87c5cb8ff', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'SSO-Enterprise-1', 'SSO Enterprise 1'),
-(1, 'system', 'KEY-8aab0814', '8aab0814-52af-41cb-b263-ce6181571cae', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'KeyManager-Enterprise', 'KeyManager Enterprise');
+(1, 'system', 'KEY-8aab0814', '8aab0814-52af-41cb-b263-ce6181571cae', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'KeyManager-Enterprise', 'KeyManager Enterprise'),
+-- KeyManager enterprise ID (found during runtime)
+(1, 'system', 'KEY-e0a2993c', 'e0a2993c-95a6-41c8-b26b-d6e1bbbd03d2', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'KeyManager-Enterprise-2', 'KeyManager Enterprise 2'),
+-- Additional SSO enterprise IDs (found during runtime)
+(1, 'system', 'SSO-dfedf4ac', 'dfedf4ac-4cc6-44fa-886f-62a61d9577fe', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'SSO-Enterprise-3', 'SSO Enterprise 3'),
+(1, 'system', 'SSO-5227cf62', '5227cf62-1d99-4b51-a5e9-aab03046a9a9', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'SSO-Enterprise-4', 'SSO Enterprise 4'),
+(1, 'system', 'SSO-27e31db4', '27e31db4-1b5b-4e90-b0d1-659a2da891b6', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'SSO-Enterprise-5', 'SSO Enterprise 5'),
+(1, 'system', 'SSO-bade788c', 'bade788c-753f-43e0-a40d-e83ae227d86a', NOW(), NOW(), UNIX_TIMESTAMP()*1000, UNIX_TIMESTAMP()*1000, 'SSO-Enterprise-6', 'SSO Enterprise 6');
 
 SELECT 'Created test Enterprise records:' as status, ROW_COUNT() as count;
 " 2>&1 | grep -v "Warning" || true

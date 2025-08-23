@@ -471,7 +471,64 @@ setup_docker_environment() {
         echo " ✓"
     fi
     
+    # Setup LocalStack resources
+    print_status "Setting up LocalStack AWS resources..."
+    setup_localstack_resources
+    
     print_success "All Docker services are running"
+}
+
+# Setup LocalStack resources (S3 buckets, SQS queues)
+setup_localstack_resources() {
+    print_status "Waiting for LocalStack to be ready..."
+    
+    # Wait for LocalStack to be fully ready
+    for i in {1..30}; do
+        if curl -s http://localhost:4566/_localstack/health | grep -q "\"services\""; then
+            print_success "LocalStack is ready"
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            print_warning "LocalStack might not be fully ready, but continuing..."
+        fi
+        sleep 2
+    done
+    
+    # Check if awslocal is available
+    if ! command -v awslocal &> /dev/null; then
+        print_warning "awslocal not found. LocalStack resources will be created on first run."
+        return 0
+    fi
+    
+    # Create S3 buckets
+    print_status "Creating S3 buckets..."
+    
+    # Create buckets (ignore if they already exist)
+    awslocal s3 mb s3://localstack-legion-data-service 2>/dev/null || true
+    awslocal s3 mb s3://localstack-legion-historical-data 2>/dev/null || true
+    
+    # Verify buckets
+    if awslocal s3 ls 2>/dev/null | grep -q "localstack-legion"; then
+        print_success "S3 buckets created/verified"
+    else
+        print_warning "Could not verify S3 buckets"
+    fi
+    
+    # Create SQS queues
+    print_status "Creating SQS queues..."
+    
+    # Create queues (ignore if they already exist)
+    awslocal sqs create-queue --queue-name legion-email-queue 2>/dev/null || true
+    awslocal sqs create-queue --queue-name legion-notification-queue 2>/dev/null || true
+    
+    # Verify queues
+    if awslocal sqs list-queues 2>/dev/null | grep -q "legion"; then
+        print_success "SQS queues created/verified"
+    else
+        print_warning "Could not verify SQS queues"
+    fi
+    
+    print_success "LocalStack resources setup complete"
 }
 
 # Setup development tools
@@ -684,6 +741,38 @@ setup_dev_tools() {
         fi
     else
         print_success "Yasha $(yasha --version 2>/dev/null || echo 'installed')"
+    fi
+    
+    # AWS CLI (needed for LocalStack)
+    if ! command -v aws &> /dev/null; then
+        print_status "Installing AWS CLI..."
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            brew install awscli
+        else
+            # Linux
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+            rm -rf awscliv2.zip aws/
+        fi
+        print_success "AWS CLI installed"
+    else
+        print_success "AWS CLI already installed"
+    fi
+    
+    # awscli-local (for LocalStack)
+    if ! command -v awslocal &> /dev/null; then
+        print_status "Installing awscli-local for LocalStack..."
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            brew install awscli-local
+        else
+            # Linux - use pip
+            pip3 install --user awscli-local
+            export PATH="$HOME/.local/bin:$PATH"
+        fi
+        print_success "awscli-local installed"
+    else
+        print_success "awscli-local already installed"
     fi
     
     # GLPK library (for optimization)
