@@ -62,6 +62,102 @@ if [ ! -d "$LEGION_ROOT" ]; then
     exit 1
 fi
 
+# ============================================================================
+# FUNCTION: ensure_config_optimizations (Added in v12)
+# ============================================================================
+# Purpose: Apply performance optimizations to prevent backend runtime issues
+# 
+# Problems Addressed:
+# 1. HikariCP Connection Pool Exhaustion - "Connection not available" errors
+#    - Increased max connections from 100 to 150
+#    - Increased min connections from 5 to 10
+#    - Added connection timeout of 5000ms
+#
+# 2. Cache Bootstrap Timeout - "PLT_TASK cache not ready after 10 minutes"
+#    - Increased timeout from 10 to 20 minutes
+#    - Enabled parallel cache loading
+#    - Added batch size configuration
+#
+# 3. Missing Dynamic Group Enum Values - Deserialization errors
+#    - Added logging to help identify problematic data
+#
+# Design: 
+# - Fully idempotent - can be run multiple times safely
+# - Returns 1 if config was modified (triggers rebuild)
+# - Returns 0 if already optimized (skips unnecessary work)
+# - Creates timestamped backups before modifications
+# ============================================================================
+ensure_config_optimizations() {
+    local SOURCE_VALUES="$ENTERPRISE_ROOT/config/src/main/resources/templates/application/local/local.values.yml"
+    
+    # Check if source file exists
+    if [ ! -f "$SOURCE_VALUES" ]; then
+        echo -e "${YELLOW}⚠ Source values file not found, skipping config optimization${NC}"
+        return 0
+    fi
+    
+    # Check if optimizations already applied
+    if grep -q "datasource_max_active: 150" "$SOURCE_VALUES" 2>/dev/null; then
+        echo -e "${GREEN}✓ Config optimizations already applied${NC}"
+        return 0
+    fi
+    
+    # Track that we modified the config (for rebuild trigger)
+    local CONFIG_MODIFIED=1
+    
+    echo -e "${BLUE}Applying performance optimizations to config...${NC}"
+    
+    # Create backup only if changes needed
+    local BACKUP_FILE="$SOURCE_VALUES.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$SOURCE_VALUES" "$BACKUP_FILE"
+    
+    # Check if settings exist and update or add them
+    if grep -q "datasource_max_active:" "$SOURCE_VALUES"; then
+        # Update existing values (use different backup extension to avoid conflicts)
+        sed -i.bak 's/datasource_max_active:.*/datasource_max_active: 150  # Optimized by build script/' "$SOURCE_VALUES"
+        sed -i.bak 's/datasource_min_size:.*/datasource_min_size: 10  # Optimized by build script/' "$SOURCE_VALUES"
+        
+        # Add other settings if missing
+        if ! grep -q "datasource_max_wait:" "$SOURCE_VALUES"; then
+            echo "datasource_max_wait: 5000  # Connection timeout in ms" >> "$SOURCE_VALUES"
+        fi
+        if ! grep -q "cache_bootstrap_timeout:" "$SOURCE_VALUES"; then
+            echo -e "\n# Cache configuration optimizations" >> "$SOURCE_VALUES"
+            echo "cache_bootstrap_timeout: 20  # Increased from 10 minutes" >> "$SOURCE_VALUES"
+            echo "cache_bootstrap_parallel: true" >> "$SOURCE_VALUES"
+            echo "cache_bootstrap_batch_size: 50" >> "$SOURCE_VALUES"
+        fi
+    else
+        # Add new settings
+        cat >> "$SOURCE_VALUES" << 'EOF'
+
+# Performance optimizations added by build script
+# Connection pool settings
+datasource_max_active: 150  # Increased from 100
+datasource_min_size: 10     # Increased from 5
+datasource_max_wait: 5000   # Connection timeout in ms
+
+# Cache configuration  
+cache_bootstrap_timeout: 20  # Increased from 10 minutes
+cache_bootstrap_parallel: true
+cache_bootstrap_batch_size: 50
+
+# Logging for debugging
+logging_hikari_level: INFO
+logging_cache_level: INFO
+logging_scheduled_tasks_level: INFO
+EOF
+    fi
+    
+    # Clean up temp files (sed creates .bak files)
+    rm -f "$SOURCE_VALUES.bak" 2>/dev/null
+    
+    echo -e "${GREEN}✓ Config optimizations applied (backup: $BACKUP_FILE)${NC}"
+    
+    # Return 1 to indicate config was modified (triggers rebuild)
+    return 1
+}
+
 # Function to build backend
 build_backend() {
     echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
@@ -76,11 +172,38 @@ build_backend() {
     
     cd "$ENTERPRISE_ROOT"
     
-    # Check if application.yml exists
+    # ========================================================================
+    # CONFIG OPTIMIZATION & REBUILD LOGIC (Added in v12)
+    # ========================================================================
+    # Why: Config changes weren't being picked up, causing backend to run with
+    #      old settings even after optimizations were applied
+    # How: 1. Apply optimizations if needed (idempotent function)
+    #      2. Force rebuild if config was just modified
+    #      3. Check timestamps for external modifications
+    # ========================================================================
+    
+    # Apply config optimizations if needed (idempotent)
+    # Returns 1 if config was modified, 0 if already optimized
+    ensure_config_optimizations
+    CONFIG_WAS_MODIFIED=$?
+    
+    # Check if application.yml exists or needs rebuild
     if [ ! -f "$ENTERPRISE_ROOT/config/target/resources/local/application.yml" ]; then
         echo -e "${YELLOW}Warning: application.yml not found${NC}"
         echo "Building configuration files..."
         mvn clean compile -P dev -pl config
+    elif [ $CONFIG_WAS_MODIFIED -eq 1 ]; then
+        # Config was just modified, force rebuild
+        echo -e "${YELLOW}Config was optimized, rebuilding application.yml...${NC}"
+        mvn compile -P dev -pl config
+    else
+        # Check if source is newer than target (config was updated externally)
+        SOURCE_VALUES="$ENTERPRISE_ROOT/config/src/main/resources/templates/application/local/local.values.yml"
+        TARGET_YML="$ENTERPRISE_ROOT/config/target/resources/local/application.yml"
+        if [ "$SOURCE_VALUES" -nt "$TARGET_YML" ]; then
+            echo -e "${YELLOW}Source config updated, rebuilding...${NC}"
+            mvn compile -P dev -pl config
+        fi
     fi
     
     echo -e "${BLUE}Running Maven build...${NC}"

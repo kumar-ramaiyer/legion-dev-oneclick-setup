@@ -34,9 +34,12 @@ cd ../..
    # ⏰ WAIT 15-20 MINUTES for full startup!
    ```
 
-2. **Check Backend is Ready**
+2. **Monitor Backend Readiness** (in a separate terminal)
    ```bash
-   # Keep running this until it returns {"status":"UP"}
+   # Automated monitoring - will notify when ready:
+   ./scripts/check-backend-ready.sh
+   
+   # OR manually check:
    curl http://localhost:8080/actuator/health
    ```
 
@@ -183,6 +186,9 @@ The build script:
 ```
 legion-dev-oneclick-setup/
 ├── setup.sh                   # ONE COMMAND entry point
+├── scripts/
+│   ├── build-and-run.sh     # Build and run backend/frontend
+│   └── check-backend-ready.sh # Automated backend readiness checker
 ├── docker/
 │   ├── docker-compose.yml    # All services configuration
 │   ├── Caddyfile            # HTTPS routing
@@ -217,12 +223,27 @@ cd legion-dev-oneclick-setup
 
 ### 🔍 How to Know Backend is Ready
 
-Watch for these indicators:
+#### 🚀 **Automated Method (Recommended)**
+Use our backend readiness checker script that monitors both logs and health endpoint:
+```bash
+# In a separate terminal, run:
+./scripts/check-backend-ready.sh
+
+# This script will:
+# - Monitor the health endpoint every 10 seconds
+# - Check logs for startup indicators
+# - Show progress updates (Flyway migrations, module loading)
+# - Notify you when backend is fully ready
+# - Exit automatically when backend is UP
+```
+
+#### Manual Methods:
 
 1. **Health Check URL** (quickest method):
    ```bash
-   # Keep checking this URL until it returns data:
-   curl http://localhost:8080/actuator/health
+   # Keep checking this URL until it returns data (port 9009 for management endpoints)
+   curl http://localhost:9009/actuator/health
+   # Note: Status may show "DOWN" due to optional components, but endpoint responding means backend is ready
    ```
 
 2. **Console Log Indicators** - Look for these messages:
@@ -242,8 +263,8 @@ Watch for these indicators:
 3. **API Endpoints to Test**:
    ```bash
    # Once started, verify with:
-   curl http://localhost:8080/actuator/health
-   curl http://localhost:8080/api/v1/ping
+   curl http://localhost:9009/actuator/health  # Management port
+   curl http://localhost:8080/api/v1/ping     # Main application port
    ```
 
 ### Frontend (Console-UI)
@@ -280,9 +301,10 @@ Common test accounts:
 
 ### Access Points
 - Main App: `https://legion.local` (via Caddy proxy)
-- Backend Direct: `http://localhost:8080`
+- Backend API: `http://localhost:8080`
+- Backend Management: `http://localhost:9009` (actuator endpoints)
 - Frontend Direct: `http://localhost:3000`
-- Health Check: `http://localhost:8080/actuator/health`
+- Health Check: `http://localhost:9009/actuator/health`
 - All services route through Caddy for HTTPS
 
 ## ✅ Verification
