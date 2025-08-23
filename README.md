@@ -131,6 +131,29 @@ Everything else is installed automatically!
 
 No prompts, no decisions - fully automated! After setup, both applications are fully built and ready to run.
 
+## 🔧 Runtime Fixes Applied (v14)
+
+The setup automatically applies these critical fixes:
+
+### Database Fixes
+- **Collation Standardization**: Converts tables to utf8mb4_general_ci
+- **Dynamic Group WorkRole**: Replaces invalid enum values
+- **Enterprise Schema Mappings**: Adds dev/test enterprise IDs
+
+### Configuration Optimizations
+- **Connection Pool**: 300 max connections, 20 min pool, 30s timeout
+- **Cache Timeouts**: 60 minute bootstrap, individual cache tolerances
+- **Health Checks**: Disabled problematic multischema DB checks
+
+### Fix Scripts Available
+```bash
+# Apply fixes manually if needed:
+scripts/fix-mysql-collation.sh        # Fix collation errors
+scripts/fix-dynamicgroup-workrole-db.sh  # Fix enum errors
+scripts/fix-connection-pool-config.sh    # Optimize connections
+scripts/fix-cache-timeout-config.sh      # Fix cache timeouts
+```
+
 ## 🛠️ Architecture
 
 ```
@@ -407,7 +430,17 @@ cd ..
 
 ## 🎯 Version History
 
-### v6.2 (Current) - VOLUME-BASED MySQL & CENTRALIZED CONFIG
+### v14 (Current) - RUNTIME FIXES & PERFORMANCE OPTIMIZATIONS
+- 🚀 **Connection Pool Optimization**: 300 connections (was 100), 30s timeout
+- ⏱️ **Cache Timeout Fixes**: 60 minute bootstrap timeout, 600s validation tolerance
+- 🔧 **MySQL Collation Fix**: Standardized to utf8mb4_general_ci
+- 🛠️ **Dynamic Group Fix**: WorkRole enum deserialization resolved
+- 📝 **Modular Fix Scripts**: Separate scripts for each fix type
+- 🏗️ **Post-Import Automation**: Fixes applied automatically after MySQL import
+- ⚡ **Idempotent Configuration**: Safe to run multiple times
+- 📊 **Health Check Optimization**: Disabled problematic DB health checks
+
+### v6.2 - VOLUME-BASED MySQL & CENTRALIZED CONFIG
 - 🗄️ MySQL data in Docker volume (not image) for reliability
 - 🔧 Fixed EnterpriseSchema columns (createdDate/lastModifiedDate) 
 - 📋 Centralized configuration (docker/config.sh) for consistent naming

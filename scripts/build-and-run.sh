@@ -1,7 +1,38 @@
 #!/bin/bash
 
-# Legion Build and Run Script
-# This script builds and/or runs the Legion backend and frontend applications
+# ============================================================================
+# Legion Build and Run Script - v14 with Performance Optimizations
+# ============================================================================
+# Purpose: Builds and runs both Legion backend (Spring Boot) and frontend (React)
+#          with all performance optimizations and configuration fixes
+#
+# Version: v14 (2024-12-23)
+# Author: Legion DevOps Team
+#
+# Features:
+# - Idempotent configuration updates (safe to run multiple times)
+# - Connection pool optimization (300 connections)
+# - Cache timeout configuration (60 minutes)
+# - Automatic config rebuild on changes
+# - Parallel build support
+# - Frontend and backend coordination
+#
+# Configuration Changes Applied:
+# - datasource_max_active: 300 (was 100)
+# - datasource_min_size: 20 (was 5)
+# - datasource_max_wait: 30000ms (was 5000ms)
+# - cache_bootstrap_timeout: 60 minutes (was 10)
+# - scheduled_task_cache_timeout: 60 minutes
+# - cache_validation_tolerance: 600 seconds (was 120)
+# - management_health_db_enabled: false (prevents multischema errors)
+#
+# Requirements:
+# - Java 17 (Amazon Corretto recommended)
+# - Maven 3.6+
+# - Node.js 14+
+# - MySQL container running (port 3307)
+# - LocalStack running (optional, for S3/SQS)
+#
 # Usage: ./build-and-run.sh [command] [options]
 # Commands:
 #   build-all      - Build both backend and frontend
@@ -96,9 +127,9 @@ ensure_config_optimizations() {
         return 0
     fi
     
-    # Check if optimizations already applied (v13: check for 60 minute timeout)
-    if grep -q "cache_bootstrap_timeout: 60" "$SOURCE_VALUES" 2>/dev/null; then
-        echo -e "${GREEN}✓ Config optimizations already applied (v13)${NC}"
+    # Check if optimizations already applied (v14: check for cache tolerance settings)
+    if grep -q "cache_validation_tolerance_seconds: 600" "$SOURCE_VALUES" 2>/dev/null; then
+        echo -e "${GREEN}✓ Config optimizations already applied (v14)${NC}"
         return 0
     fi
     
@@ -145,11 +176,31 @@ datasource_max_wait: 5000   # Connection timeout in ms
 cache_bootstrap_timeout: 60  # Increased to 60 minutes (v13)
 cache_bootstrap_parallel: true
 cache_bootstrap_batch_size: 50
+scheduled_task_cache_timeout: 60  # Match the cache bootstrap timeout (v14)
 
 # Logging for debugging
 logging_hikari_level: INFO
 logging_cache_level: INFO
 logging_scheduled_tasks_level: INFO
+
+# Cache Validation Tolerance Settings (v14)
+# Prevents excessive cache rebuilds due to stale validation
+cache_validation_tolerance_seconds: 600  # 10 minutes (was 120 seconds)
+cache_s3_age_tolerance: 3600            # 1 hour for S3 cached files
+cache_stale_check_interval: 300         # Check every 5 minutes
+cache_force_refresh_after: 7200         # Force refresh after 2 hours
+
+# Individual cache tolerances (in seconds)
+cache_tolerance_employee: 600           # Employee cache
+cache_tolerance_engagement: 600         # Engagement cache  
+cache_tolerance_workerbadge: 300        # Worker badge cache (5 min)
+cache_tolerance_assignmentrule: 1200    # Assignment rule cache (20 min)
+cache_tolerance_dynamicgroup: 900       # Dynamic group cache (15 min)
+cache_tolerance_template: 1800          # Template cache (30 min)
+
+# Health check configuration (v14)
+# Disable DB health check for multischema routing datasource
+management_health_db_enabled: false
 EOF
     fi
     

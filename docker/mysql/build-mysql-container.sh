@@ -1,7 +1,37 @@
 #!/bin/bash
 
-# Legion MySQL Container Builder - V3 with Volume Approach
-# This creates a reusable Docker volume with all data
+# ============================================================================
+# Legion MySQL Container Builder - V14 with Post-Import Fixes
+# ============================================================================
+# Purpose: Creates a Docker-based MySQL 8.0 environment for Legion development
+#          with all production data imported and runtime fixes applied
+#
+# Version: v14 (2024-12-23)
+# Author: Legion DevOps Team
+#
+# Features:
+# - Docker volume-based approach for data persistence
+# - Automatic import of production database dumps
+# - Post-import fixes for runtime issues
+# - Collation standardization (utf8mb4_general_ci)
+# - Dynamic Group WorkRole enum fix
+# - Enterprise schema mappings for dev/test
+# - Flyway migration fixes
+#
+# Requirements:
+# - Docker Desktop installed and running
+# - Database dumps in specified folder
+# - At least 20GB free disk space
+# - Port 3307 available
+#
+# Usage:
+#   ./build-mysql-container.sh [/path/to/dbdumps]
+#
+# Output:
+# - Docker volume: legion-mysql-data
+# - Container: legion-mysql (port 3307)
+# - Databases: legiondb (913 tables), legiondb0 (840 tables)
+# ============================================================================
 
 set -e
 
@@ -585,6 +615,30 @@ EOF
 
 echo -e "${GREEN}✓ Collation fix completed${NC}"
 
+# ============================================================================
+# FIX: Dynamic Group WorkRole Issue (Added in v14)
+# ============================================================================
+# Problem: DynamicGroup table contains test data with "WorkRole" field type
+#          which is not in the DynamicGroupCondition$FieldType enum
+# Solution: Convert WorkRole to LocationAttribute (closest valid type)
+# Impact: Prevents deserialization errors in DynamicGroupUtil
+# ============================================================================
+echo -e "${YELLOW}Fixing Dynamic Group WorkRole field type issues...${NC}"
+docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD << 'EOF'
+USE legiondb;
+-- Check for problematic Dynamic Groups
+SELECT COUNT(*) as affected_groups FROM DynamicGroup WHERE basicCondition LIKE '%WorkRole%';
+
+-- Convert WorkRole to LocationAttribute (safe conversion)
+UPDATE DynamicGroup 
+SET basicCondition = REPLACE(basicCondition, '"fieldType":"WorkRole"', '"fieldType":"LocationAttribute"')
+WHERE basicCondition LIKE '%WorkRole%';
+
+SELECT ROW_COUNT() as 'Fixed Dynamic Groups';
+EOF
+
+echo -e "${GREEN}✓ Dynamic Group WorkRole fix completed${NC}"
+
 # Fix missing columns
 echo -e "${YELLOW}Adding missing database columns...${NC}"
 docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD << 'EOF'
@@ -633,8 +687,42 @@ docker run -d \
 echo "Waiting for MySQL to be ready..."
 sleep 15
 
-# Step 7: Final verification
-echo -e "${BLUE}Step 7: Final verification${NC}"
+# ============================================================================
+# Step 7: Apply Post-Import Database Fixes
+# ============================================================================
+# These scripts fix various runtime issues discovered during development
+# They are run after the database import to ensure data consistency
+# ============================================================================
+echo -e "${BLUE}Step 7: Applying post-import database fixes${NC}"
+echo ""
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FIXES_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")/scripts"
+
+# Apply MySQL collation fix (prevents "Illegal mix of collations" errors)
+if [ -f "$FIXES_DIR/fix-mysql-collation.sh" ]; then
+    echo -e "${YELLOW}Applying MySQL collation fix...${NC}"
+    bash "$FIXES_DIR/fix-mysql-collation.sh" $MYSQL_CONTAINER <<< "n" # Answer 'n' to comprehensive fix for speed
+    echo ""
+else
+    echo -e "${YELLOW}Warning: fix-mysql-collation.sh not found${NC}"
+fi
+
+# Apply Dynamic Group WorkRole fix (prevents enum deserialization errors)
+if [ -f "$FIXES_DIR/fix-dynamicgroup-workrole-db.sh" ]; then
+    echo -e "${YELLOW}Applying Dynamic Group WorkRole fix...${NC}"
+    bash "$FIXES_DIR/fix-dynamicgroup-workrole-db.sh" $MYSQL_CONTAINER
+    echo ""
+else
+    echo -e "${YELLOW}Warning: fix-dynamicgroup-workrole-db.sh not found${NC}"
+fi
+
+# Note: Connection pool and cache timeout fixes are configuration changes,
+# not database changes, so they are handled in the build-and-run.sh script
+
+# Step 8: Final verification
+echo -e "${BLUE}Step 8: Final verification${NC}"
 echo ""
 echo "Table counts:"
 docker exec $MYSQL_CONTAINER mysql -ulegion -plegionwork -e "
@@ -676,6 +764,8 @@ echo -e "${GREEN}║  ✓ Docker volume '$MYSQL_VOLUME' created                �
 echo -e "${GREEN}║  ✓ 913 tables in legiondb                                   ║${NC}"
 echo -e "${GREEN}║  ✓ 840 tables in legiondb0                                  ║${NC}"
 echo -e "${GREEN}║  ✓ EnterpriseSchema has correct columns                     ║${NC}"
+echo -e "${GREEN}║  ✓ Collation fixes applied                                  ║${NC}"
+echo -e "${GREEN}║  ✓ Dynamic Group fixes applied                              ║${NC}"
 echo -e "${GREEN}║  ✓ Container '$MYSQL_CONTAINER' running on port $MYSQL_PORT            ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╗${NC}"
 echo ""
