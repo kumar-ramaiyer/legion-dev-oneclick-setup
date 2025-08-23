@@ -482,6 +482,135 @@ SELECT 'legiondb' as db, COUNT(*) as tables FROM information_schema.tables WHERE
 UNION ALL
 SELECT 'legiondb0', COUNT(*) FROM information_schema.tables WHERE table_schema='legiondb0';"
 
+# ============================================================================
+# FIX: MySQL Collation Standardization (Added in v12)
+# ============================================================================
+# Problem: Backend was experiencing "Illegal mix of collations" errors
+# Root Cause: Tables created by Flyway migrations used MySQL 8.0's default 
+#             collation (utf8mb4_0900_ai_ci) while the database was set to
+#             utf8mb4_general_ci, causing JPA query failures
+# Solution: Convert all tables to use utf8mb4_general_ci consistently
+# Impact: Prevents query failures in AccrualTypeMigrateTask, OAuth2 operations,
+#         and Enterprise data queries
+# ============================================================================
+echo -e "${YELLOW}Fixing MySQL collation to prevent 'Illegal mix of collations' errors...${NC}"
+docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD << 'EOF'
+-- Set default collation for databases
+ALTER DATABASE legiondb CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+ALTER DATABASE legiondb0 CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+
+-- Convert tables in legiondb
+USE legiondb;
+DROP PROCEDURE IF EXISTS ConvertTablesToGeneralCI;
+DELIMITER $$
+CREATE PROCEDURE ConvertTablesToGeneralCI()
+BEGIN
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE tableName VARCHAR(255);
+    DECLARE cur CURSOR FOR 
+        SELECT TABLE_NAME 
+        FROM information_schema.TABLES 
+        WHERE TABLE_SCHEMA = 'legiondb' 
+        AND TABLE_COLLATION = 'utf8mb4_0900_ai_ci';
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+    
+    OPEN cur;
+    
+    read_loop: LOOP
+        FETCH cur INTO tableName;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+        
+        SET @sql = CONCAT('ALTER TABLE ', tableName, ' CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+        
+        SELECT CONCAT('Converted table: ', tableName) as status;
+    END LOOP;
+    
+    CLOSE cur;
+END$$
+DELIMITER ;
+
+CALL ConvertTablesToGeneralCI();
+DROP PROCEDURE ConvertTablesToGeneralCI;
+
+-- Convert tables in legiondb0
+USE legiondb0;
+DROP PROCEDURE IF EXISTS ConvertTablesToGeneralCI;
+DELIMITER $$
+CREATE PROCEDURE ConvertTablesToGeneralCI()
+BEGIN
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE tableName VARCHAR(255);
+    DECLARE cur CURSOR FOR 
+        SELECT TABLE_NAME 
+        FROM information_schema.TABLES 
+        WHERE TABLE_SCHEMA = 'legiondb0' 
+        AND TABLE_COLLATION = 'utf8mb4_0900_ai_ci';
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+    
+    OPEN cur;
+    
+    read_loop: LOOP
+        FETCH cur INTO tableName;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+        
+        SET @sql = CONCAT('ALTER TABLE ', tableName, ' CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+        
+        SELECT CONCAT('Converted table: ', tableName) as status;
+    END LOOP;
+    
+    CLOSE cur;
+END$$
+DELIMITER ;
+
+CALL ConvertTablesToGeneralCI();
+DROP PROCEDURE ConvertTablesToGeneralCI;
+
+-- Verify the fix
+SELECT 'Tables with wrong collation remaining:' as status;
+SELECT COUNT(*) as count_wrong_collation
+FROM information_schema.TABLES 
+WHERE TABLE_SCHEMA IN ('legiondb', 'legiondb0') 
+AND TABLE_COLLATION = 'utf8mb4_0900_ai_ci';
+EOF
+
+echo -e "${GREEN}✓ Collation fix completed${NC}"
+
+# Fix missing columns
+echo -e "${YELLOW}Adding missing database columns...${NC}"
+docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD << 'EOF'
+-- Add missing isExpirationDateRequired column to WorkerBadge table
+USE legiondb;
+ALTER TABLE WorkerBadge ADD COLUMN IF NOT EXISTS isExpirationDateRequired bit DEFAULT 0;
+
+USE legiondb0;
+ALTER TABLE WorkerBadge ADD COLUMN IF NOT EXISTS isExpirationDateRequired bit DEFAULT 0;
+
+-- Verify the column was added
+SELECT 'WorkerBadge column check in legiondb:' as status;
+SELECT COUNT(*) as has_column FROM information_schema.COLUMNS 
+WHERE TABLE_SCHEMA = 'legiondb' 
+AND TABLE_NAME = 'WorkerBadge' 
+AND COLUMN_NAME = 'isExpirationDateRequired';
+
+SELECT 'WorkerBadge column check in legiondb0:' as status;
+SELECT COUNT(*) as has_column FROM information_schema.COLUMNS 
+WHERE TABLE_SCHEMA = 'legiondb0' 
+AND TABLE_NAME = 'WorkerBadge' 
+AND COLUMN_NAME = 'isExpirationDateRequired';
+EOF
+
+echo -e "${GREEN}✓ Missing columns added${NC}"
+
 # Clean up import container but keep volume
 echo -e "${BLUE}Step 4: Stopping import container${NC}"
 docker stop $MYSQL_IMPORT_CONTAINER

@@ -69,6 +69,8 @@ docker/.env
 *.backup.*
 *.bak.*
 setup_config.yaml.backup.*
+*.bak
+local.values.yml.backup.*
 
 # Additional certificate patterns  
 *.p12
