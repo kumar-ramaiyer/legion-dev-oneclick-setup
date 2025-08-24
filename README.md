@@ -21,7 +21,7 @@ cd ../..
 ./setup.sh
 
 # After setup completes, everything is built! Just run the applications:
-./scripts/build-and-run.sh run-backend   # Start backend (15-20 min startup)
+./scripts/build-and-run.sh run-backend   # Start backend (20-30 min startup)
 ./scripts/build-and-run.sh run-frontend  # Start frontend (after backend is ready)
 
 # Need to rebuild? Use these commands:
@@ -33,7 +33,7 @@ cd ../..
 ## ⏱️ Quick Start Guide - IMPORTANT TIMING INFO
 
 ### Step-by-Step After Setup:
-1. **Start Backend First** (15-20 min startup)
+1. **Start Backend First** (20-30 min startup)
    ```bash
    ./scripts/build-and-run.sh run-backend
    # ⏰ WAIT 15-20 MINUTES for full startup!
@@ -169,7 +169,7 @@ The `build-and-run.sh` script is your main tool for development:
 | `build-all` | Build backend + frontend | ~15 min | Full rebuild |
 | `build-backend` | Build backend only | ~10 min | Maven build with all modules |
 | `build-frontend` | Build frontend only | ~5 min | Yarn build with webpack |
-| `run-backend` | Start backend server | 15-20 min startup | JVM with 8GB heap |
+| `run-backend` | Start backend server | 20-30 min startup | JVM with 8GB heap |
 | `run-frontend` | Start frontend dev server | ~1 min | Webpack dev server |
 
 ### Usage Examples
@@ -278,10 +278,11 @@ legion-dev-oneclick-setup/
 After setup completes, both backend and frontend are ALREADY BUILT. You just need to run them:
 
 ### ⚠️ IMPORTANT: Backend Startup Time
-**The backend takes 15-20 minutes to start** on first run due to:
-- Flyway database migrations (automatic, cannot be skipped)
+**The backend takes 20-30 minutes to start** on first run due to:
+- Flyway database migrations (2,913 migrations to execute)
+- Repository initialization (667 repositories)
+- Cache bootstrap (takes 2-3 minutes at the end)
 - Spring Boot initialization with 100+ modules
-- Jetty server startup and warmup
 
 **Wait for the backend to fully start before launching the frontend!**
 
@@ -289,7 +290,8 @@ After setup completes, both backend and frontend are ALREADY BUILT. You just nee
 ```bash
 cd legion-dev-oneclick-setup
 ./scripts/build-and-run.sh run-backend
-# Note: First startup takes 15-20 minutes! Be patient.
+# Note: First startup takes 20-30 minutes! Be patient.
+# Watch for: "PLT_CACHE_BOOTSTRAP Full Startup" message
 ```
 
 ### 🔍 How to Know Backend is Ready
@@ -310,28 +312,37 @@ Use our backend readiness checker script that monitors both logs and health endp
 
 #### Manual Methods:
 
-1. **Health Check URL** (quickest method):
+1. **🎯 Cache Bootstrap Complete** (MOST RELIABLE indicator):
+   ```
+   # ✅ When you see this message, the backend is FULLY READY:
+   PLT_CACHE_BOOTSTRAP Full Startup 25.6 min
+   
+   # This appears in the console after ALL initialization is complete
+   # Example log line:
+   # 2025-08-23 23:47:49 INFO BootstrapCacheTask:164 [] PLT_CACHE_BOOTSTRAP Full Startup 25.6 min
+   ```
+
+2. **Health Check URL** (quickest to test):
    ```bash
    # Keep checking this URL until it returns data (port 9009 for management endpoints)
    curl http://localhost:9009/actuator/health
    # Note: Status may show "DOWN" due to optional components, but endpoint responding means backend is ready
    ```
 
-2. **Console Log Indicators** - Look for these messages:
+3. **Other Console Log Indicators**:
    ```
-   # ✅ When you see this, the backend is READY:
+   # These messages also indicate startup, but may appear before cache is ready:
    "Started SpringWebServer in XXX seconds"
-   
-   # OR look for:
    "Jetty started on port(s) 8080"
+   "Started Application in XXX seconds"
    
-   # OR the Jetty ASCII art:
+   # Jetty ASCII art:
    ╭──────────────────────────────────────╮
    │   Jetty Server Started Successfully  │
    ╰──────────────────────────────────────╯
    ```
 
-3. **API Endpoints to Test**:
+4. **API Endpoints to Test**:
    ```bash
    # Once started, verify with:
    curl http://localhost:9009/actuator/health  # Management port
@@ -383,7 +394,7 @@ The `build-and-run.sh` script provides commands for building and running both ba
 ```bash
 # Run backend (requires prior build)
 ./scripts/build-and-run.sh run-backend
-# Startup time: 15-20 minutes first run
+# Startup time: 20-30 minutes first run
 # Port: 8080 (API), 9009 (Management)
 # JVM Memory: 8GB max heap (configurable)
 
