@@ -5,12 +5,13 @@
 # ============================================================================
 # Problems:
 # 1. "PLT_TASK cache for enterprise X is not ready after 10 minutes"
-# 2. "PLT_CACHE age:132 > tolerance:120" causing unnecessary cache rebuilds
-# 3. Cache bootstrap timeout too short for large enterprises
+# 2. Cache bootstrap timeout hardcoded in Java code
 #
-# Solution: Increase all cache-related timeouts to 60 minutes
+# Solution: 
+# 1. Add scheduled_task_cache_timeout property to config (60 minutes)
+# 2. Java code already modified to read this property
 #
-# Impact: Prevents cache timeout errors and reduces unnecessary rebuilds
+# Impact: Prevents cache timeout errors for large enterprises
 # ============================================================================
 
 # Colors for output
@@ -52,61 +53,27 @@ apply_cache_timeout_settings() {
     echo -e "${BLUE}Applying cache timeout settings...${NC}"
     
     # Check if settings already exist
-    if grep -q "# Cache Timeout Configuration (v14)" "$CONFIG_FILE" 2>/dev/null; then
-        echo -e "${YELLOW}Cache timeout settings already exist, updating...${NC}"
+    if grep -q "scheduled_task_cache_timeout:" "$CONFIG_FILE" 2>/dev/null; then
+        echo -e "${YELLOW}Cache timeout setting already exists, updating...${NC}"
         
-        # Update existing values
-        sed -i.bak 's/cache_bootstrap_timeout:.*/cache_bootstrap_timeout: 60  # 60 minutes for large enterprises/' "$CONFIG_FILE"
-        sed -i.bak 's/scheduled_task_cache_timeout:.*/scheduled_task_cache_timeout: 60  # Match bootstrap timeout/' "$CONFIG_FILE"
-        sed -i.bak 's/cache_validation_tolerance_seconds:.*/cache_validation_tolerance_seconds: 600  # 10 minutes/' "$CONFIG_FILE"
-        sed -i.bak 's/cache_s3_age_tolerance:.*/cache_s3_age_tolerance: 3600  # 1 hour for S3/' "$CONFIG_FILE"
+        # Update existing value
+        sed -i.bak 's/scheduled_task_cache_timeout:.*/scheduled_task_cache_timeout: 60  # Cache timeout in minutes for scheduled tasks/' "$CONFIG_FILE"
     else
-        echo -e "${BLUE}Adding new cache timeout settings...${NC}"
+        echo -e "${BLUE}Adding new cache timeout setting...${NC}"
         
-        # Add new settings
+        # Add new setting at the end of the file
         cat >> "$CONFIG_FILE" << 'EOF'
 
-# Cache Timeout Configuration (v14)
-# Prevents cache timeout errors and unnecessary rebuilds
-cache_bootstrap_timeout: 60  # 60 minutes for large enterprises (was 10)
-scheduled_task_cache_timeout: 60  # Match bootstrap timeout
-plt_task_cache_timeout: 60  # Platform task cache timeout
-
-# Cache Validation Tolerance Settings
-# Prevents "age > tolerance" errors causing unnecessary rebuilds
-cache_validation_tolerance_seconds: 600  # 10 minutes (was 120 seconds)
-cache_s3_age_tolerance: 3600            # 1 hour for S3 cached files
-cache_stale_check_interval: 300         # Check every 5 minutes
-cache_force_refresh_after: 7200         # Force refresh after 2 hours
-
-# Individual cache type tolerances (in seconds)
-cache_tolerance_employee: 600           # Employee cache
-cache_tolerance_engagement: 600         # Engagement cache  
-cache_tolerance_workerbadge: 300        # Worker badge cache (5 min)
-cache_tolerance_assignmentrule: 1200    # Assignment rule cache (20 min)
-cache_tolerance_dynamicgroup: 900       # Dynamic group cache (15 min)
-cache_tolerance_template: 1800          # Template cache (30 min)
-cache_tolerance_location: 600           # Location cache
-cache_tolerance_enterprise: 1800        # Enterprise cache (30 min)
-
-# Cache externalization settings (S3)
-cache_externalize_enabled: true         # Enable S3 externalization
-cache_externalize_min_size: 1024        # Min size in KB to externalize
-cache_externalize_compression: true     # Enable compression
-cache_externalize_s3_bucket: legion-cache  # S3 bucket for cache
-
-# Cache warming settings
-cache_warm_on_startup: true             # Warm caches on startup
-cache_warm_parallel_threads: 4          # Parallel threads for warming
-cache_warm_retry_attempts: 3            # Retry attempts for warming
-cache_warm_retry_delay: 5000            # Delay between retries (ms)
+# Custom configuration for scheduled task cache timeout (v15)
+# This property is read by EnterpriseScheduledTaskManager using @Value annotation
+scheduled_task_cache_timeout: 60  # Cache timeout in minutes for scheduled tasks
 EOF
     fi
     
     # Clean up backup files
     rm -f "$CONFIG_FILE.bak" 2>/dev/null
     
-    echo -e "${GREEN}✓ Cache timeout settings applied${NC}"
+    echo -e "${GREEN}✓ Cache timeout setting applied${NC}"
 }
 
 # Function to show current cache issues from logs
@@ -123,27 +90,15 @@ analyze_logs() {
             echo "  - PLT_TASK cache timeouts: $PLT_ERRORS occurrences"
             grep "PLT_TASK cache.*is not ready after" "$HOME/enterprise.logs.txt" | tail -2 | while read line; do
                 ENTERPRISE=$(echo "$line" | grep -oP 'enterprise \K[a-f0-9-]+' | head -1)
-                echo "    Enterprise: $ENTERPRISE"
+                if [ ! -z "$ENTERPRISE" ]; then
+                    echo "    Enterprise: $ENTERPRISE"
+                fi
             done
         fi
         
-        # Check for cache validation tolerance errors
         echo ""
-        echo -e "${YELLOW}Recent cache tolerance violations:${NC}"
-        grep "age:.* > tolerance:" "$HOME/enterprise.logs.txt" 2>/dev/null | tail -5 | while read line; do
-            if [[ $line =~ age:([0-9]+).*tolerance:([0-9]+) ]]; then
-                AGE="${BASH_REMATCH[1]}"
-                TOLERANCE="${BASH_REMATCH[2]}"
-                CACHE_TYPE=$(echo "$line" | grep -oP 'PLT_CACHE \K[^/]+' | head -1)
-                echo "  - Cache: $CACHE_TYPE, Age: ${AGE}s, Tolerance: ${TOLERANCE}s (exceeded by $((AGE-TOLERANCE))s)"
-            fi
-        done
-        
-        echo ""
-        echo -e "${GREEN}With new settings:${NC}"
-        echo "  • Bootstrap timeout: 60 minutes (was 10)"
-        echo "  • Validation tolerance: 600 seconds (was 120)"
-        echo "  • Individual cache tolerances: 300-1800 seconds"
+        echo -e "${GREEN}With new setting:${NC}"
+        echo "  • Cache bootstrap timeout: 60 minutes (was hardcoded 10)"
     else
         echo -e "${YELLOW}No log file found at ~/enterprise.logs.txt${NC}"
     fi
@@ -168,7 +123,7 @@ rebuild_config() {
 
 # Main execution
 main() {
-    echo -e "${BLUE}This script will fix cache timeout and tolerance issues${NC}"
+    echo -e "${BLUE}This script will fix cache timeout issues${NC}"
     echo ""
     
     check_config
@@ -192,13 +147,11 @@ main() {
     echo -e "${BLUE}║                  Configuration Summary                       ║${NC}"
     echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo "Cache Settings Applied:"
-    echo "  • Bootstrap Timeout: 60 minutes (was 10)"
-    echo "  • PLT_TASK Timeout: 60 minutes"
-    echo "  • Validation Tolerance: 600 seconds (was 120)"
-    echo "  • S3 Age Tolerance: 3600 seconds"
-    echo "  • Individual Cache Tolerances: 300-1800 seconds"
-    echo "  • Cache Warming: Enabled with 4 threads"
+    echo "Cache Setting Applied:"
+    echo "  • scheduled_task_cache_timeout: 60 minutes"
+    echo ""
+    echo "Note: The Java code has been modified to read this property"
+    echo "instead of using a hardcoded 10-minute timeout."
     echo ""
     echo -e "${GREEN}✓ Cache timeout configuration completed${NC}"
 }
