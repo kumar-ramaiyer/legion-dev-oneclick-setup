@@ -314,18 +314,24 @@ run_backend() {
     
     # Build the JVM arguments
     JVM_ARGS=(
-        # Memory settings
-        "-Xms1536m"
-        "-Xmx4928m"
-        "-XX:MaxMetaspaceSize=768m"
-        "-XX:CompressedClassSpaceSize=192m"
+        # Memory settings (v16: increased to 8GB)
+        "-Xms4g"
+        "-Xmx8g"
+        "-XX:MetaspaceSize=512m"
+        "-XX:MaxMetaspaceSize=1g"
+        "-XX:CompressedClassSpaceSize=256m"
         "-XX:+UseCompressedOops"
         "-XX:+UseCompressedClassPointers"
         
-        # GC settings
-        "-XX:ParallelGCThreads=2"
-        "-XX:ConcGCThreads=1"
+        # GC settings (v16: optimized for startup)
+        "-XX:+UseG1GC"
+        "-XX:ParallelGCThreads=4"
+        "-XX:ConcGCThreads=2"
         "-XX:+UseStringDeduplication"
+        
+        # Startup optimization flags (v16)
+        "-XX:TieredStopAtLevel=1"
+        "-XX:CICompilerCount=4"
         "-XX:+HeapDumpOnOutOfMemoryError"
         
         # Spring configuration
@@ -399,7 +405,7 @@ run_backend() {
     # Use direct Java command like developers do
     # Disable AWS SDK v1 deprecation warning
     export AWS_JAVA_V1_DISABLE_DEPRECATION_ANNOUNCEMENT=true
-    exec java -Xmx6528m \
+    exec java -Xms4g -Xmx8g \
         -XX:MaxMetaspaceSize=1272m \
         -XX:CompressedClassSpaceSize=512m \
         -XX:+UseCompressedOops \
