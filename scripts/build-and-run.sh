@@ -18,13 +18,11 @@
 # - Frontend and backend coordination
 #
 # Configuration Changes Applied:
-# - datasource_max_active: 300 (was 100)
-# - datasource_min_size: 20 (was 5)
-# - datasource_max_wait: 30000ms (was 5000ms)
-# - cache_bootstrap_timeout: 60 minutes (was 10)
-# - scheduled_task_cache_timeout: 60 minutes
-# - cache_validation_tolerance: 600 seconds (was 120)
-# - management_health_db_enabled: false (prevents multischema errors)
+# - datasources.system.primary.maxActive: 300 (was 100)
+# - datasources.system.primary.minSize: 20 (was 5)
+# - datasources.enterprise.*.maxActive: 100 per schema
+# - scheduled_task_cache_timeout: 60 minutes (configurable via @Value)
+# - Note: Cache validation tolerances are hardcoded in Java
 #
 # Requirements:
 # - Java 17 (Amazon Corretto recommended)
@@ -128,7 +126,7 @@ ensure_config_optimizations() {
     fi
     
     # Check if optimizations already applied (v14: check for cache tolerance settings)
-    if grep -q "cache_validation_tolerance_seconds: 600" "$SOURCE_VALUES" 2>/dev/null; then
+    if grep -q "scheduled_task_cache_timeout:" "$SOURCE_VALUES" 2>/dev/null; then
         echo -e "${GREEN}✓ Config optimizations already applied (v14)${NC}"
         return 0
     fi
@@ -142,67 +140,42 @@ ensure_config_optimizations() {
     local BACKUP_FILE="$SOURCE_VALUES.backup.$(date +%Y%m%d_%H%M%S)"
     cp "$SOURCE_VALUES" "$BACKUP_FILE"
     
-    # Check if settings exist and update or add them
-    if grep -q "datasource_max_active:" "$SOURCE_VALUES"; then
-        # Update existing values (use different backup extension to avoid conflicts)
-        sed -i.bak 's/datasource_max_active:.*/datasource_max_active: 150  # Optimized by build script/' "$SOURCE_VALUES"
-        sed -i.bak 's/datasource_min_size:.*/datasource_min_size: 10  # Optimized by build script/' "$SOURCE_VALUES"
-        
-        # Add other settings if missing
-        if ! grep -q "datasource_max_wait:" "$SOURCE_VALUES"; then
-            echo "datasource_max_wait: 5000  # Connection timeout in ms" >> "$SOURCE_VALUES"
-        fi
-        
-        # Update cache timeout if it exists, otherwise add it
-        if grep -q "cache_bootstrap_timeout:" "$SOURCE_VALUES"; then
-            sed -i.bak 's/cache_bootstrap_timeout:.*/cache_bootstrap_timeout: 60  # Increased to 60 minutes (v13)/' "$SOURCE_VALUES"
-        else
-            echo -e "\n# Cache configuration optimizations" >> "$SOURCE_VALUES"
-            echo "cache_bootstrap_timeout: 60  # Increased to 60 minutes (v13)" >> "$SOURCE_VALUES"
-            echo "cache_bootstrap_parallel: true" >> "$SOURCE_VALUES"
-            echo "cache_bootstrap_batch_size: 50" >> "$SOURCE_VALUES"
-        fi
-    else
-        # Add new settings
+    # Add the configurations that actually work
+    
+    # 1. Add scheduled task cache timeout
+    if ! grep -q "scheduled_task_cache_timeout:" "$SOURCE_VALUES"; then
         cat >> "$SOURCE_VALUES" << 'EOF'
 
-# Performance optimizations added by build script
-# Connection pool settings
-datasource_max_active: 150  # Increased from 100
-datasource_min_size: 10     # Increased from 5
-datasource_max_wait: 5000   # Connection timeout in ms
-
-# Cache configuration  
-cache_bootstrap_timeout: 60  # Increased to 60 minutes (v13)
-cache_bootstrap_parallel: true
-cache_bootstrap_batch_size: 50
-scheduled_task_cache_timeout: 60  # Match the cache bootstrap timeout (v14)
-
-# Logging for debugging
-logging_hikari_level: INFO
-logging_cache_level: INFO
-logging_scheduled_tasks_level: INFO
-
-# Cache Validation Tolerance Settings (v14)
-# Prevents excessive cache rebuilds due to stale validation
-cache_validation_tolerance_seconds: 600  # 10 minutes (was 120 seconds)
-cache_s3_age_tolerance: 3600            # 1 hour for S3 cached files
-cache_stale_check_interval: 300         # Check every 5 minutes
-cache_force_refresh_after: 7200         # Force refresh after 2 hours
-
-# Individual cache tolerances (in seconds)
-cache_tolerance_employee: 600           # Employee cache
-cache_tolerance_engagement: 600         # Engagement cache  
-cache_tolerance_workerbadge: 300        # Worker badge cache (5 min)
-cache_tolerance_assignmentrule: 1200    # Assignment rule cache (20 min)
-cache_tolerance_dynamicgroup: 900       # Dynamic group cache (15 min)
-cache_tolerance_template: 1800          # Template cache (30 min)
-
-# Health check configuration (v14)
-# Disable DB health check for multischema routing datasource
-management_health_db_enabled: false
+# Custom configuration for scheduled task cache timeout (v15)
+# This property is read by EnterpriseScheduledTaskManager using @Value annotation
+scheduled_task_cache_timeout: 60  # Cache timeout in minutes for scheduled tasks
 EOF
+    else
+        # Update existing value if present
+        sed -i.bak 's/scheduled_task_cache_timeout:.*/scheduled_task_cache_timeout: 60  # Cache timeout in minutes for scheduled tasks/' "$SOURCE_VALUES"
     fi
+    
+    # 2. Add health check disable for multischema routing (v15)
+    if ! grep -q "management:" "$SOURCE_VALUES"; then
+        cat >> "$SOURCE_VALUES" << 'EOF'
+
+# Management configuration (v15)
+# Disable DB health check to prevent multischema routing errors
+management:
+  health:
+    db:
+      enabled: false  # Prevents "Cannot determine DataSource for null" errors
+EOF
+    elif ! grep -A 5 "management:" "$SOURCE_VALUES" | grep -q "health:"; then
+        # Management exists but health section doesn't
+        sed -i.bak '/^management:/a\
+  health:\
+    db:\
+      enabled: false  # Disabled to prevent multischema routing errors' "$SOURCE_VALUES"
+    fi
+    
+    echo -e "${YELLOW}Note: Connection pool settings should be configured using fix-connection-pool-config.sh${NC}"
+    echo -e "${YELLOW}      which properly updates the datasources section.${NC}"
     
     # Clean up temp files (sed creates .bak files)
     rm -f "$SOURCE_VALUES.bak" 2>/dev/null

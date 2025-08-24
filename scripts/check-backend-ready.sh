@@ -70,7 +70,15 @@ check_health() {
 # Function to check log file for startup indicators
 check_logs() {
     if [ -f "$LOG_FILE" ]; then
-        # Check for successful startup messages
+        # Check for successful cache bootstrap completion (v15)
+        # This is the most reliable indicator of successful startup
+        if grep -q "PLT_CACHE_BOOTSTRAP Full Startup" "$LOG_FILE" 2>/dev/null; then
+            local startup_time=$(grep "PLT_CACHE_BOOTSTRAP Full Startup" "$LOG_FILE" | tail -1 | grep -oP '\d+\.\d+ min' || echo "unknown")
+            print_success "Cache bootstrap completed in $startup_time"
+            return 0
+        fi
+        
+        # Check for other successful startup messages
         if grep -q "Started SpringWebServer in" "$LOG_FILE" 2>/dev/null; then
             return 0
         fi
@@ -89,8 +97,8 @@ show_log_progress() {
     if [ -f "$LOG_FILE" ]; then
         # Check for Flyway migrations
         if grep -q "Flyway Community Edition" "$LOG_FILE" 2>/dev/null; then
-            local migrations=$(grep -c "Migrating schema" "$LOG_FILE" 2>/dev/null || echo "0")
-            if [ "$migrations" -gt 0 ]; then
+            local migrations=$(grep -c "Migrating schema" "$LOG_FILE" 2>/dev/null | tr -d '\n' || echo "0")
+            if [ "$migrations" -gt "0" ] 2>/dev/null; then
                 echo -e "${CYAN}  → Flyway migrations in progress (${migrations} migrations detected)${NC}"
             fi
         fi
@@ -101,8 +109,8 @@ show_log_progress() {
         fi
         
         # Check for module loading
-        local modules=$(grep -c "Loading module:" "$LOG_FILE" 2>/dev/null || echo "0")
-        if [ "$modules" -gt 0 ]; then
+        local modules=$(grep -c "Loading module:" "$LOG_FILE" 2>/dev/null | tr -d '\n' || echo "0")
+        if [ "$modules" -gt "0" ] 2>/dev/null; then
             echo -e "${CYAN}  → Loading modules (${modules} modules loaded)${NC}"
         fi
     fi

@@ -663,6 +663,66 @@ AND TABLE_NAME = 'WorkerBadge'
 AND COLUMN_NAME = 'isExpirationDateRequired';
 EOF
 
+# ============================================================================
+# FIX: Badge Table Missing Column (Added in v15)
+# ============================================================================
+# Problem: Flyway migration V50_38.0.1745841392574__SchemaUpdate.sql didn't execute
+# Solution: Add missing isExpirationDateRequired column to Badge table
+# ============================================================================
+echo -e "${YELLOW}Adding missing Badge.isExpirationDateRequired column...${NC}"
+docker exec $MYSQL_IMPORT_CONTAINER mysql -u$MYSQL_USER -p$MYSQL_PASSWORD << 'EOF'
+-- Add missing column to Badge table in both schemas
+USE legiondb0;
+CALL AddColumnWithType('Badge', 'isExpirationDateRequired', 'bit');
+UPDATE Badge SET isExpirationDateRequired = 0 WHERE isExpirationDateRequired IS NULL;
+
+USE legiondb;
+CALL AddColumnWithType('Badge', 'isExpirationDateRequired', 'bit');
+UPDATE Badge SET isExpirationDateRequired = 0 WHERE isExpirationDateRequired IS NULL;
+
+-- Verify the column was added
+SELECT 'Badge column check in legiondb0:' as status;
+SELECT COUNT(*) as has_column FROM information_schema.COLUMNS 
+WHERE TABLE_SCHEMA = 'legiondb0' 
+AND TABLE_NAME = 'Badge' 
+AND COLUMN_NAME = 'isExpirationDateRequired';
+
+SELECT 'Badge column check in legiondb:' as status;
+SELECT COUNT(*) as has_column FROM information_schema.COLUMNS 
+WHERE TABLE_SCHEMA = 'legiondb' 
+AND TABLE_NAME = 'Badge' 
+AND COLUMN_NAME = 'isExpirationDateRequired';
+
+-- Mark the migration as successful in Flyway history
+USE legiondb0;
+INSERT IGNORE INTO flyway_schema_history 
+(installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success) 
+SELECT 
+    (SELECT COALESCE(MAX(installed_rank), 0) + 1 FROM flyway_schema_history fsh), 
+    '50.38.0.1745841392574', 'SchemaUpdate', 'SQL', 
+    'V50_38.0.1745841392574__SchemaUpdate.sql', 
+    NULL, 'build_script', NOW(), 0, 1
+WHERE NOT EXISTS (
+    SELECT 1 FROM flyway_schema_history 
+    WHERE script LIKE '%V50_38.0.1745841392574__SchemaUpdate%'
+);
+
+USE legiondb;
+INSERT IGNORE INTO flyway_schema_history 
+(installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success) 
+SELECT 
+    (SELECT COALESCE(MAX(installed_rank), 0) + 1 FROM flyway_schema_history fsh), 
+    '50.38.0.1745841392574', 'SchemaUpdate', 'SQL', 
+    'V50_38.0.1745841392574__SchemaUpdate.sql', 
+    NULL, 'build_script', NOW(), 0, 1
+WHERE NOT EXISTS (
+    SELECT 1 FROM flyway_schema_history 
+    WHERE script LIKE '%V50_38.0.1745841392574__SchemaUpdate%'
+);
+EOF
+
+echo -e "${GREEN}✓ Badge column fix completed${NC}"
+
 echo -e "${GREEN}✓ Missing columns added${NC}"
 
 # Clean up import container but keep volume

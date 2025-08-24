@@ -7,11 +7,10 @@
 #
 # Root Causes:
 # 1. Default pool size (100) insufficient for enterprise workload
-# 2. Short connection timeout (5s) causing premature failures
-# 3. No connection leak detection configured
-# 4. Health checks consuming connections unnecessarily
+# 2. Multiple datasources competing for connections
+# 3. Multischema routing consuming more connections
 #
-# Solution: Increase pool size, timeouts, and add leak detection
+# Solution: Increase pool size for all datasources using correct YAML structure
 #
 # Impact: Prevents connection pool exhaustion and improves stability
 # ============================================================================
@@ -52,66 +51,75 @@ backup_config() {
 
 # Function to apply connection pool settings
 apply_connection_pool_settings() {
-    echo -e "${BLUE}Applying aggressive connection pool settings...${NC}"
+    echo -e "${BLUE}Applying connection pool settings to datasources...${NC}"
     
-    # Check if settings already exist
-    if grep -q "# Connection Pool Configuration (v14)" "$CONFIG_FILE" 2>/dev/null; then
-        echo -e "${YELLOW}Connection pool settings already exist, updating...${NC}"
+    # Update system primary datasource
+    if grep -q "datasources:" "$CONFIG_FILE"; then
+        echo -e "${BLUE}Updating system datasource connection pools...${NC}"
         
-        # Update existing values
-        sed -i.bak 's/datasource_max_active:.*/datasource_max_active: 300  # Increased from default 100/' "$CONFIG_FILE"
-        sed -i.bak 's/datasource_min_size:.*/datasource_min_size: 20    # Minimum pool size/' "$CONFIG_FILE"
-        sed -i.bak 's/datasource_max_idle:.*/datasource_max_idle: 50     # Maximum idle connections/' "$CONFIG_FILE"
-        sed -i.bak 's/datasource_max_wait:.*/datasource_max_wait: 30000  # 30 seconds timeout/' "$CONFIG_FILE"
-        sed -i.bak 's/datasource_validation_timeout:.*/datasource_validation_timeout: 5000  # 5 seconds/' "$CONFIG_FILE"
-        sed -i.bak 's/datasource_leak_detection_threshold:.*/datasource_leak_detection_threshold: 60000  # 60 seconds/' "$CONFIG_FILE"
-        sed -i.bak 's/datasource_connection_timeout:.*/datasource_connection_timeout: 30000  # 30 seconds/' "$CONFIG_FILE"
-        sed -i.bak 's/datasource_idle_timeout:.*/datasource_idle_timeout: 600000  # 10 minutes/' "$CONFIG_FILE"
-        sed -i.bak 's/datasource_max_lifetime:.*/datasource_max_lifetime: 1800000  # 30 minutes/' "$CONFIG_FILE"
+        # Check if maxActive already exists for system.primary
+        if grep -A 5 "system:" "$CONFIG_FILE" | grep -A 5 "primary:" | grep -q "maxActive:"; then
+            echo -e "${YELLOW}System primary datasource already has maxActive, updating...${NC}"
+            # Update existing maxActive for system.primary
+            perl -i -pe 's/(system:\s*\n\s*primary:[\s\S]*?)(maxActive:\s*)\d+/$1${2}300  # Increased from default 100 (v15)/m' "$CONFIG_FILE"
+            perl -i -pe 's/(system:\s*\n\s*primary:[\s\S]*?)(minSize:\s*)\d+/$1${2}20     # Increased from default 5 (v15)/m' "$CONFIG_FILE"
+        else
+            echo -e "${BLUE}Adding maxActive to system primary datasource...${NC}"
+            # Add maxActive and minSize after password in system.primary
+            perl -i -pe 's/(system:\s*\n\s*primary:[\s\S]*?password:\s*\S+)/$1\n            maxActive: 300  # Increased from default 100 (v15)\n            minSize: 20     # Increased from default 5 (v15)/m' "$CONFIG_FILE"
+        fi
+        
+        # Check if maxActive already exists for system.secondary
+        if grep -A 5 "system:" "$CONFIG_FILE" | grep -A 20 "secondary:" | grep -q "maxActive:"; then
+            echo -e "${YELLOW}System secondary datasource already has maxActive, updating...${NC}"
+            # Update existing maxActive for system.secondary
+            perl -i -pe 's/(system:[\s\S]*?secondary:[\s\S]*?)(maxActive:\s*)\d+/$1${2}300  # Increased from default 100 (v15)/m' "$CONFIG_FILE"
+            perl -i -pe 's/(system:[\s\S]*?secondary:[\s\S]*?)(minSize:\s*)\d+/$1${2}20     # Increased from default 5 (v15)/m' "$CONFIG_FILE"
+        else
+            echo -e "${BLUE}Adding maxActive to system secondary datasource...${NC}"
+            # Add maxActive and minSize after password in system.secondary
+            perl -i -pe 's/(secondary:\s*\n\s*url:[\s\S]*?password:\s*\S+)/$1\n            maxActive: 300  # Increased from default 100 (v15)\n            minSize: 20     # Increased from default 5 (v15)/m' "$CONFIG_FILE"
+        fi
+        
+        # Update enterprise datasources
+        echo -e "${BLUE}Updating enterprise datasource connection pools...${NC}"
+        
+        # For each enterprise datasource (legiondb, legiondb1000, legiondb1001)
+        for db in legiondb legiondb1000 legiondb1001; do
+            echo "  - Updating $db datasources..."
+            
+            # Update primary datasource
+            if grep -A 10 "$db:" "$CONFIG_FILE" | grep -A 5 "primary:" | grep -q "maxActive:"; then
+                perl -i -pe "s/($db:[\s\S]*?primary:[\s\S]*?)(maxActive:\s*)\d+/\${1}\${2}100  # Enterprise-specific pool (v15)/m" "$CONFIG_FILE"
+            else
+                perl -i -pe "s/($db:\s*\n\s*primary:[\s\S]*?password:\s*\S+)/\$1\n          maxActive: 100  # Enterprise-specific pool (v15)/m" "$CONFIG_FILE"
+            fi
+            
+            if grep -A 10 "$db:" "$CONFIG_FILE" | grep -A 5 "primary:" | grep -q "minSize:"; then
+                perl -i -pe "s/($db:[\s\S]*?primary:[\s\S]*?)(minSize:\s*)\d+/\${1}\${2}10     # Increased from 1 (v15)/m" "$CONFIG_FILE"
+            else
+                perl -i -pe "s/($db:\s*\n\s*primary:[\s\S]*?)(maxActive:.*\n)/\$1\$2          minSize: 10     # Increased from 1 (v15)\n/m" "$CONFIG_FILE"
+            fi
+            
+            # Update secondary datasource
+            if grep -A 10 "$db:" "$CONFIG_FILE" | grep -A 20 "secondary:" | grep -q "maxActive:"; then
+                perl -i -pe "s/($db:[\s\S]*?secondary:[\s\S]*?)(maxActive:\s*)\d+/\${1}\${2}100  # Enterprise-specific pool (v15)/m" "$CONFIG_FILE"
+            else
+                perl -i -pe "s/($db:[\s\S]*?secondary:[\s\S]*?password:\s*\S+)/\$1\n          maxActive: 100  # Enterprise-specific pool (v15)/m" "$CONFIG_FILE"
+            fi
+            
+            if grep -A 10 "$db:" "$CONFIG_FILE" | grep -A 20 "secondary:" | grep -q "minSize:"; then
+                perl -i -pe "s/($db:[\s\S]*?secondary:[\s\S]*?)(minSize:\s*)\d+/\${1}\${2}10     # Increased from 1 (v15)/m" "$CONFIG_FILE"
+            else
+                perl -i -pe "s/($db:[\s\S]*?secondary:[\s\S]*?)(maxActive:.*\n)/\$1\$2          minSize: 10     # Increased from 1 (v15)\n/m" "$CONFIG_FILE"
+            fi
+        done
+        
+        echo -e "${GREEN}✓ Connection pool settings applied to all datasources${NC}"
     else
-        echo -e "${BLUE}Adding new connection pool settings...${NC}"
-        
-        # Add new settings
-        cat >> "$CONFIG_FILE" << 'EOF'
-
-# Connection Pool Configuration (v14)
-# Prevents "Unable to acquire connection" errors under heavy load
-datasource_max_active: 300  # Increased from default 100
-datasource_min_size: 20    # Minimum pool size
-datasource_max_idle: 50     # Maximum idle connections
-datasource_max_wait: 30000  # 30 seconds timeout (was 5000ms)
-datasource_validation_timeout: 5000  # 5 seconds
-datasource_leak_detection_threshold: 60000  # 60 seconds
-datasource_connection_timeout: 30000  # 30 seconds
-datasource_idle_timeout: 600000  # 10 minutes
-datasource_max_lifetime: 1800000  # 30 minutes
-
-# HikariCP specific settings
-hikari_minimum_idle: 20
-hikari_maximum_pool_size: 300
-hikari_connection_timeout: 30000
-hikari_idle_timeout: 600000
-hikari_max_lifetime: 1800000
-hikari_validation_timeout: 5000
-hikari_leak_detection_threshold: 60000
-
-# Connection validation
-datasource_test_on_borrow: true
-datasource_test_while_idle: true
-datasource_validation_query: "SELECT 1"
-datasource_time_between_eviction_runs_millis: 30000
-datasource_min_evictable_idle_time_millis: 60000
-
-# Disable problematic health checks that consume connections
-management_health_db_enabled: false
-management_health_diskspace_enabled: false
-EOF
+        echo -e "${RED}✗ Could not find datasources section in config${NC}"
+        exit 1
     fi
-    
-    # Clean up backup files
-    rm -f "$CONFIG_FILE.bak" 2>/dev/null
-    
-    echo -e "${GREEN}✓ Connection pool settings applied${NC}"
 }
 
 # Function to show current connection pool issues from logs
@@ -129,7 +137,9 @@ analyze_logs() {
         CONN_ERRORS=$(grep -c "Unable to acquire connection" "$HOME/enterprise.logs.txt" 2>/dev/null || echo "0")
         echo ""
         echo -e "${YELLOW}Total connection pool errors found: $CONN_ERRORS${NC}"
-        echo -e "${GREEN}With new settings: 300 max connections, 30s timeout${NC}"
+        echo -e "${GREEN}With new settings:${NC}"
+        echo "  • System datasources: 300 max connections each"
+        echo "  • Enterprise datasources: 100 max connections each"
     else
         echo -e "${YELLOW}No log file found at ~/enterprise.logs.txt${NC}"
     fi
@@ -179,13 +189,16 @@ main() {
     echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo "Connection Pool Settings Applied:"
-    echo "  • Max Active Connections: 300 (was 100)"
-    echo "  • Min Pool Size: 20 (was 5)"
-    echo "  • Connection Timeout: 30s (was 5s)"
-    echo "  • Leak Detection: 60s threshold"
-    echo "  • Idle Timeout: 10 minutes"
-    echo "  • Max Lifetime: 30 minutes"
-    echo "  • Health Checks: Disabled (to save connections)"
+    echo "  System Datasources (primary & secondary):"
+    echo "    • Max Active Connections: 300 (was 100)"
+    echo "    • Min Pool Size: 20 (was 5)"
+    echo ""
+    echo "  Enterprise Datasources (all schemas):"
+    echo "    • Max Active Connections: 100 (was default)"
+    echo "    • Min Pool Size: 10 (was 1)"
+    echo ""
+    echo "Note: These settings use the correct YAML structure"
+    echo "that the Jinja2 template system expects."
     echo ""
     echo -e "${GREEN}✓ Connection pool configuration completed${NC}"
 }
