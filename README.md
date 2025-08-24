@@ -21,8 +21,13 @@ cd ../..
 ./setup.sh
 
 # After setup completes, everything is built! Just run the applications:
-# Backend: ./scripts/build-and-run.sh run-backend
-# Frontend: ./scripts/build-and-run.sh run-frontend
+./scripts/build-and-run.sh run-backend   # Start backend (15-20 min startup)
+./scripts/build-and-run.sh run-frontend  # Start frontend (after backend is ready)
+
+# Need to rebuild? Use these commands:
+./scripts/build-and-run.sh build-backend   # Rebuild backend (~10 min)
+./scripts/build-and-run.sh build-frontend  # Rebuild frontend (~5 min)
+./scripts/build-and-run.sh build-all       # Rebuild both (~15 min)
 ```
 
 ## ⏱️ Quick Start Guide - IMPORTANT TIMING INFO
@@ -153,6 +158,49 @@ scripts/fix-dynamicgroup-workrole-db.sh  # Fix enum errors
 scripts/fix-connection-pool-config.sh    # Optimize connections
 scripts/fix-cache-timeout-config.sh      # Fix cache timeouts
 ```
+
+## 🛠️ Build and Run Script
+
+The `build-and-run.sh` script is your main tool for development:
+
+### Available Commands
+| Command | Description | Time | Notes |
+|---------|-------------|------|-------|
+| `build-all` | Build backend + frontend | ~15 min | Full rebuild |
+| `build-backend` | Build backend only | ~10 min | Maven build with all modules |
+| `build-frontend` | Build frontend only | ~5 min | Yarn build with webpack |
+| `run-backend` | Start backend server | 15-20 min startup | JVM with 8GB heap |
+| `run-frontend` | Start frontend dev server | ~1 min | Webpack dev server |
+
+### Usage Examples
+```bash
+# First time after setup (already built)
+./scripts/build-and-run.sh run-backend
+# Wait for backend to be ready (check with check-backend-ready.sh)
+./scripts/build-and-run.sh run-frontend
+
+# After code changes
+./scripts/build-and-run.sh build-backend && ./scripts/build-and-run.sh run-backend
+# Or for frontend changes
+./scripts/build-and-run.sh build-frontend && ./scripts/build-and-run.sh run-frontend
+
+# Full rebuild and run
+./scripts/build-and-run.sh build-all
+./scripts/build-and-run.sh run-backend
+# Wait for backend...
+./scripts/build-and-run.sh run-frontend
+```
+
+### Build Outputs
+- **Backend JAR**: `~/Development/legion/code/enterprise/app/target/legion-app-enterprise.jar`
+- **Frontend Build**: `~/Development/legion/code/console-ui/packages/console-ui/build/`
+
+### JVM Configuration (Backend)
+The backend runs with optimized JVM settings (v16):
+- **Memory**: 4GB initial, 8GB max heap
+- **GC**: G1GC with 4 parallel threads  
+- **Metaspace**: 1GB max
+- **Optimization**: TieredStopAtLevel=1 for faster startup
 
 ## 🛠️ Architecture
 
@@ -310,16 +358,53 @@ Common test accounts:
 - Check the wiki link above for specific usernames and passwords
 - Different accounts have different permission levels for testing
 
-### Build Commands
+### 🔨 Build Commands
+
+The `build-and-run.sh` script provides commands for building and running both backend and frontend:
+
+#### Building Applications
 ```bash
-# Build everything
+# Build everything (backend + frontend)
 ./scripts/build-and-run.sh build-all
+# Time: ~15 minutes total
 
-# Build only backend
+# Build only backend (Maven)
 ./scripts/build-and-run.sh build-backend
+# Time: ~10 minutes
+# Creates: ~/Development/legion/code/enterprise/app/target/legion-app-enterprise.jar
 
-# Build only frontend
-./scripts/build-and-run.sh build-frontend
+# Build only frontend (Yarn/Webpack)
+./scripts/build-and-run.sh build-frontend  
+# Time: ~5 minutes
+# Creates: ~/Development/legion/code/console-ui/packages/console-ui/build/
+```
+
+#### Running Applications
+```bash
+# Run backend (requires prior build)
+./scripts/build-and-run.sh run-backend
+# Startup time: 15-20 minutes first run
+# Port: 8080 (API), 9009 (Management)
+# JVM Memory: 8GB max heap (configurable)
+
+# Run frontend (requires backend to be running)
+./scripts/build-and-run.sh run-frontend
+# Startup time: ~1 minute
+# Port: 3000
+# Auto-opens browser to http://localhost:3000
+```
+
+#### Clean and Rebuild
+```bash
+# Clean and rebuild backend
+cd ~/Development/legion/code/enterprise
+mvn clean install -P dev -DskipTests
+
+# Clean and rebuild frontend
+cd ~/Development/legion/code/console-ui
+rm -rf node_modules packages/*/node_modules
+npx lerna bootstrap
+yarn build
 ```
 
 ### Access Points
